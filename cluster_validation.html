@@ -83,17 +83,31 @@ body {
   line-height: 1.5;
   color: #333;
 }
-.card .includes {
+.card .problems {
   font-size: 12.5px;
-  margin-bottom: 14px;
-  line-height: 1.5;
-  color: #555;
+  margin: 0 0 14px;
+  line-height: 1.45;
+  color: #333;
   background: #f4f6fa;
   border-left: 3px solid #2c5aa0;
-  padding: 8px 10px;
+  padding: 8px 10px 6px;
   border-radius: 0 4px 4px 0;
+  list-style: none;
 }
-.card .includes b { color: #444; }
+.card .problems li { margin-bottom: 8px; }
+.card .problems li:last-child { margin-bottom: 0; }
+.card .problems .plabel { font-weight: 600; color: #2c5aa0; }
+.card .problems .pdef { color: #444; }
+.card .problems .pexample {
+  display: block;
+  margin-top: 2px;
+  padding-left: 10px;
+  font-style: italic;
+  color: #6a6a6a;
+  font-size: 12px;
+  border-left: 2px solid #d0d6e0;
+}
+.card .problems .pexample::before { content: "ex. "; font-style: normal; color: #999; font-weight: 600; }
 .card .pick-btn {
   margin-top: auto;
   padding: 12px;
@@ -292,32 +306,65 @@ const DATA = {
     {
       id: "donor_mediated_loop",
       label: "Donor-mediated policy-learning loop",
-      includes: "high cost / loan burden; lack of training; water-source unavailability; soil/climate unsuitability",
-      definition: "Problems that are donor-legible, donor-financed, and relatively visible to the formal system."
+      definition: "Problems that are donor-legible, donor-financed, and relatively visible to the formal system.",
+      problems: [
+        { label: "High cost / loan burden",     def: "Farmers cannot afford the equipment, installation, or loan burden.",
+          ex: "The 506M-soum loan grew to 528M; the cluster now plans to withhold the entire amount from the 2021 cotton payment." },
+        { label: "Lack of training",             def: "Farmers and specialists lack practical guidance on operating and maintaining WST.",
+          ex: "Farmers were given the equipment but no real instruction on how to use or maintain it." },
+        { label: "Water source unavailability",  def: "WST is installed but canal water or wells cannot supply enough water.",
+          ex: "Drip equipment is installed, but canal water never reaches our fields when we need it." },
+        { label: "Soil / climate unsuitability", def: "Saline, heavy-clay, or high-groundwater soils don't suit drip — water doesn't penetrate, salts accumulate.",
+          ex: "On heavy soils in Uzbekistan, water did not penetrate the subsoil; drip works mainly on light, sandy ground." }
+      ]
     },
     {
       id: "state_loop",
       label: "State policy-learning loop",
-      includes: "electricity supply problems; subsidy delay/nonpayment",
-      definition: "Problems that generate farmer complaints but still enter state administrative response channels."
+      definition: "Problems that generate farmer complaints but still enter state administrative response channels.",
+      problems: [
+        { label: "Electricity supply problems",  def: "Outages and limited power hours stop pumps and drip systems from running.",
+          ex: "Pumps cannot run during scheduled outages, so drip systems sit idle during peak watering windows." },
+        { label: "Subsidy delay / nonpayment",   def: "Promised subsidies arrive late, are denied, or never disbursed.",
+          ex: "The subsidy came in, but the promised 10% rate cut never took effect — my loan is still at 21%." }
+      ]
     },
     {
       id: "governance_failures",
       label: "Governance failures",
-      includes: "installation problems; corruption / fund misuse; contractor fraud",
-      definition: "Procurement, contractor, and accountability failures that are partially visible but hard for the formal system to translate into accountability."
+      definition: "Procurement, contractor, and accountability failures that are partially visible but hard for the formal system to translate into accountability.",
+      problems: [
+        { label: "Installation problems",        def: "Poor installation quality, incorrect setup, or contractor errors.",
+          ex: "We agreed on 25M soums per hectare, but the contractor billed separately for the reservoir, foundation, and electrical components." },
+        { label: "Corruption / fund misuse",     def: "Officials embezzle subsidies, inflate prices, or fake installation reports.",
+          ex: "Half a billion soums in subsidies and preferential loans went to a project that failed in under a month." },
+        { label: "Contractor fraud",             def: "Contractors take payment but abandon, deliver incomplete work, or disappear.",
+          ex: "I paid 262M soums for drip irrigation; the contractor has done none of the work to this day." }
+      ]
     },
     {
       id: "decay_coercion",
       label: "Decay / coercion",
-      includes: "equipment malfunction; forced adoption",
-      definition: "Post-adoption decay and coercive implementation problems that are weakly absorbed by formal policy-learning channels."
+      definition: "Post-adoption decay and coercive implementation problems that are weakly absorbed by formal policy-learning channels.",
+      problems: [
+        { label: "Equipment malfunction",        def: "Drip lines, filters, pumps, sprinkler heads break, clog, or fail.",
+          ex: "If a drip tape tears mid-field, it takes 3–4 days to get a replacement — by then the cotton has wilted." },
+        { label: "Forced adoption",              def: "Officials coerce farmers into signing WST contracts regardless of readiness or land fit.",
+          ex: "The hokim told farmers to sign drip contracts regardless of land suitability or capacity to pay." }
+      ]
     },
     {
       id: "abandoned_dormant",
       label: "Abandoned / dormant problems",
-      includes: "insufficient yield/profit; water-schedule mismatch; weed proliferation",
-      definition: "Problems with weak or declining formal response, including local agronomic issues and profitability concerns that do not fit the program narrative."
+      definition: "Problems with weak or declining formal response — local agronomic and profitability issues that do not fit the program narrative.",
+      problems: [
+        { label: "Insufficient yield / profit",  def: "WST fails to deliver expected yields or profit after implementation.",
+          ex: "Average drip yield was ~20.7 centners/hectare across the demonstration fields — well below expectations." },
+        { label: "Water schedule mismatch",      def: "Canal schedules (every 7–15 days in big volumes) clash with drip's need for small frequent flows.",
+          ex: "Canal water arrives every 10 days in large volumes; drip needs small flows every 2–3 days." },
+        { label: "Weed proliferation",           def: "Drip keeps soil moist and uncompacted, fueling weed growth and crushing yields.",
+          ex: "Drip keeps the soil moist and soft, so weeds explode and outpace any reasonable control effort." }
+      ]
     }
   ],
   criteria: [
@@ -752,10 +799,16 @@ DATA.criteria.forEach(c => { SESSION.states[c.key] = newCriterionState(SESSION.c
 let currentPair = null;  // { a_id, b_id, left_id, right_id }
 
 function renderCard(cluster, side) {
+  const items = (cluster.problems || []).map(p => `
+    <li>
+      <span class="plabel">${escapeHtml(p.label)}</span>
+      <span class="pdef">— ${escapeHtml(p.def)}</span>
+      <span class="pexample">"${escapeHtml(p.ex)}"</span>
+    </li>`).join("");
   return `<div class="card" data-side="${escapeHtml(side)}" data-cluster-id="${escapeHtml(cluster.id)}">
     <h2>${escapeHtml(cluster.label)}</h2>
-    <div class="includes"><b>Includes:</b> ${escapeHtml(cluster.includes)}</div>
     <div class="definition">${escapeHtml(cluster.definition)}</div>
+    <ul class="problems">${items}</ul>
     <button type="button" class="pick-btn" data-pick="${escapeHtml(side)}">${side === "left" ? "← THIS ONE" : "THIS ONE →"}</button>
   </div>`;
 }
