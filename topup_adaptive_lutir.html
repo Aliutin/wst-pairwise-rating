@@ -207,6 +207,8 @@ body {
   border-bottom: 1px dashed #e8e8e8;
 }
 .pair-row.resolved { background: #eaf6ec; }
+.pair-row.exhausted { background: #fdf3e6; color: #6c4f1f; font-style: italic; }
+.pair-row.exhausted .bar .fill { background: #c98a3a; }
 .pair-row .ids { color: #444; font-family: monospace; }
 .pair-row .bar {
   height: 8px; background: #eee; border-radius: 4px; overflow: hidden;
@@ -1797,7 +1799,7 @@ function renderTopbar(currentCriterion, comparisonsDone, maxComparisons, resolve
     pill.classList.toggle("active", pill.dataset.criterion === currentCriterion);
   });
   const critTitle = (DATA.criteria.find(c => c.key === currentCriterion) || {}).title || currentCriterion;
-  $("#counter").textContent = `Resolved ${resolved}/${total} pairs — Comparison ${comparisonsDone + 1} of ${maxComparisons} max — ${critTitle}`;
+  $("#counter").textContent = `Done ${resolved}/${total} pairs (resolved or inseparable) — Comparison ${comparisonsDone + 1} of ${maxComparisons} max — ${critTitle}`;
 }
 
 // =============================================
@@ -1838,6 +1840,13 @@ function initCriterionState(critKey) {
       a: p.a, b: p.b,
       p_a_better_final: 0.5,
       resolved: false,
+      // "exhausted" = same pair asked >= STUCK_K consecutive times with |delta P| < STUCK_DELTA;
+      //               algorithm stops asking and treats it as inseparable at this threshold.
+      exhausted: false,
+      // Recent P trace for stuck detection. Last STUCK_K p_a_better_final values
+      // observed for this pair across consecutive asks (reset when another pair is asked).
+      consecutive_p_trace: [],
+      consecutive_count: 0,
       n_directs: 0,
     };
   }
@@ -1851,6 +1860,11 @@ function initCriterionState(critKey) {
     last_pair_key: null,
   };
 }
+
+// Stuck-detection thresholds. If the same pair has been asked STUCK_K consecutive
+// times AND the spread of P(a>b) over those asks is < STUCK_SPREAD, mark exhausted.
+const STUCK_K = 4;
+const STUCK_SPREAD = 0.05;
 
 DATA.criteria.forEach(c => {
   TOPUP.by_criterion[c.key] = initCriterionState(c.key);
@@ -1966,8 +1980,10 @@ function refitCurrent(critKey) {
   st.fit.available = true;
 }
 
-function recomputeResolutions(critKey) {
+function recomputeResolutions(critKey, lastAskedKey) {
   // Returns max |dP| across unresolved pairs (for movement check).
+  // lastAskedKey = pair just asked; we update its consecutive trace; other
+  // pairs' consecutive traces reset because they weren't the asked pair.
   const st = TOPUP.by_criterion[critKey];
   const M = globalThis.WSTMath;
   const pids = st.fit.pids;
@@ -1985,11 +2001,29 @@ function recomputeResolutions(critKey) {
       p_ab = M.probABetter(theta[i], theta[j], Sigma[i][i], Sigma[j][j], Sigma[i][j]);
     }
     const wasResolved = r.resolved;
-    if (!wasResolved) {
+    if (!wasResolved && !r.exhausted) {
       maxDP = Math.max(maxDP, Math.abs(p_ab - r.p_a_better_final));
     }
     r.p_a_better_final = p_ab;
-    r.resolved = Math.max(p_ab, 1 - p_ab) >= threshold;
+    if (!r.resolved) {
+      r.resolved = Math.max(p_ab, 1 - p_ab) >= threshold;
+    }
+    // Stuck-pair tracker: if THIS pair was the one just asked, append; else reset.
+    if (lastAskedKey && key === lastAskedKey) {
+      r.consecutive_p_trace.push(p_ab);
+      r.consecutive_count++;
+      if (r.consecutive_p_trace.length > STUCK_K) r.consecutive_p_trace.shift();
+      if (!r.resolved && r.consecutive_count >= STUCK_K) {
+        const trace = r.consecutive_p_trace;
+        const spread = Math.max(...trace) - Math.min(...trace);
+        if (spread < STUCK_SPREAD) {
+          r.exhausted = true;
+        }
+      }
+    } else {
+      r.consecutive_p_trace = [];
+      r.consecutive_count = 0;
+    }
   }
   return maxDP;
 }
@@ -2003,7 +2037,13 @@ function pickNextPair(critKey) {
   const pids = st.fit.pids;
   const idx = {}; pids.forEach((p, i) => { idx[p] = i; });
   const Sigma = st.fit.Sigma;
-  const unresolved = st.pool.filter(p => !st.resolutions[pairKey(p.a, p.b)].resolved);
+  // Skip pairs that are either resolved (P >= threshold) OR exhausted (stuck — no
+  // separation after STUCK_K consecutive direct comparisons). Both states stop
+  // asking; the difference is reported in the output JSON.
+  const unresolved = st.pool.filter(p => {
+    const r = st.resolutions[pairKey(p.a, p.b)];
+    return !r.resolved && !r.exhausted;
+  });
   if (unresolved.length === 0) return null;
   if (!st.fit.available) {
     // pool is already IG-ranked at build time; head of pool first, but skip last_pair_key if possible.
@@ -2029,8 +2069,15 @@ function pickNextPair(critKey) {
 
 function checkStop(critKey) {
   const st = TOPUP.by_criterion[critKey];
-  const allResolved = Object.values(st.resolutions).every(r => r.resolved);
-  if (allResolved) { st.stopped_reason = "all_resolved"; return true; }
+  // "Done" = every pair is either resolved (confidence threshold met) or
+  // exhausted (stuck — no separation after STUCK_K consecutive asks).
+  const all = Object.values(st.resolutions);
+  const allDone = all.every(r => r.resolved || r.exhausted);
+  if (allDone) {
+    const anyExhausted = all.some(r => r.exhausted && !r.resolved);
+    st.stopped_reason = anyExhausted ? "all_resolved_or_exhausted" : "all_resolved";
+    return true;
+  }
   if (st.comparisons.length >= DATA.max_comparisons_per_criterion) {
     st.stopped_reason = "comparison_cap"; return true;
   }
@@ -2049,24 +2096,29 @@ function renderPairList(critKey) {
   const st = TOPUP.by_criterion[critKey];
   const lines = [];
   let resolvedN = 0;
+  let exhaustedN = 0;
   st.pool.forEach(p => {
     const k = pairKey(p.a, p.b);
     const r = st.resolutions[k];
     if (r.resolved) resolvedN++;
+    else if (r.exhausted) exhaustedN++;
     const pVal = r.p_a_better_final;
-    // Bar centered at 0.5 — fill extends right (P>0.5) or left (P<0.5).
-    const offset = (pVal - 0.5);  // -0.5 .. +0.5
-    const widthPct = Math.abs(offset) * 100; // 0..50
+    const offset = (pVal - 0.5);
+    const widthPct = Math.abs(offset) * 100;
     const leftPct = offset >= 0 ? 50 : (50 - widthPct);
     const fillStyle = `left:${leftPct}%; width:${widthPct}%`;
-    lines.push(`<div class="pair-row ${r.resolved ? 'resolved' : ''}">
-      <span class="ids">${escapeHtml(r.a)} vs ${escapeHtml(r.b)}${r.n_directs > 0 ? ' [' + r.n_directs + ']' : ''}</span>
+    let stateClass = "";
+    let suffix = "";
+    if (r.resolved) { stateClass = "resolved"; suffix = " ✓"; }
+    else if (r.exhausted) { stateClass = "exhausted"; suffix = ` ≈ inseparable @ P&ge;${DATA.confidence_threshold}`; }
+    lines.push(`<div class="pair-row ${stateClass}">
+      <span class="ids">${escapeHtml(r.a)} vs ${escapeHtml(r.b)}${r.n_directs > 0 ? ' [' + r.n_directs + ']' : ''}${suffix}</span>
       <span class="bar"><span class="fill" style="${fillStyle}"></span></span>
       <span class="pval">P=${pVal.toFixed(2)}</span>
     </div>`);
   });
   $("#pair-list").innerHTML = lines.join("");
-  return resolvedN;
+  return resolvedN + exhaustedN;  // counter shows "done" pairs (resolved OR exhausted)
 }
 
 function updatePillProgress() {
@@ -2074,8 +2126,8 @@ function updatePillProgress() {
     const k = pill.dataset.criterion;
     const st = TOPUP.by_criterion[k];
     const total = Object.keys(st.resolutions).length;
-    const resolved = Object.values(st.resolutions).filter(r => r.resolved).length;
-    const filled = total > 0 ? Math.min(5, Math.floor((resolved / total) * 5)) : 0;
+    const done = Object.values(st.resolutions).filter(r => r.resolved || r.exhausted).length;
+    const filled = total > 0 ? Math.min(5, Math.floor((done / total) * 5)) : 0;
     pill.querySelector(".progress").textContent = "▮".repeat(filled) + "▯".repeat(5 - filled);
   });
 }
@@ -2161,9 +2213,10 @@ function recordChoice(outcome) {
   const k = TOPUP.current_pair_key;
   if (st.resolutions[k]) st.resolutions[k].n_directs += 1;
   st.last_pair_key = k;
-  // Refit + recompute.
+  // Refit + recompute. Pass `k` so recomputeResolutions tracks the consecutive
+  // ask trace for stuck-pair detection.
   refitCurrent(critKey);
-  const dP = recomputeResolutions(critKey);
+  const dP = recomputeResolutions(critKey, k);
   st.movement_history.push(dP);
   // Find the just-recorded comparison's pair and stash p_a_after_fit (P(a>b) for
   // the canonical a_id direction — i.e. the entry's a_id wins).
