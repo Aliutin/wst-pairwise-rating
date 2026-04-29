@@ -197,6 +197,30 @@ body {
   margin-right: 12px;
 }
 .action-btn.secondary { background: #888; }
+/* Mode selector on the welcome screen */
+.mode-choice {
+  display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0 4px;
+}
+.mode-card {
+  flex: 1 1 240px; min-width: 240px;
+  border: 2px solid #ccc; border-radius: 6px;
+  background: #fff; padding: 12px 14px;
+  cursor: pointer; text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mode-card:hover { background: #f7faff; }
+.mode-card.selected { border-color: #2c5aa0; background: #eef3ff; }
+.mode-card .mode-title { font-weight: 700; color: #2c5aa0; font-size: 15px; }
+.mode-card .mode-desc { font-size: 12px; color: #555; margin-top: 4px; line-height: 1.4; }
+.mode-pill {
+  padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;
+  background: #1c5e30; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;
+  margin-left: 8px;
+}
+.mode-pill.full { background: #2c5aa0; }
+#mode-status {
+  margin-left: 16px; font-size: 12px; color: #555;
+}
 </style>
 </head>
 <body>
@@ -205,6 +229,8 @@ body {
   <div class="pill" data-criterion="observability">Observability <span class="progress"></span></div>
   <div class="pill" data-criterion="solvability">Solvability <span class="progress"></span></div>
   <div class="pill" data-criterion="donor_pressure">Donor pressure <span class="progress"></span></div>
+  <span id="mode-pill" class="mode-pill" style="display:none;">Full</span>
+  <span id="mode-status"></span>
   <div id="counter"></div>
   <button type="button" id="pause-btn">Pause</button>
 </div>
@@ -232,7 +258,15 @@ body {
     <h3>Start a new session</h3>
     <p>Your name or initials (used to label your downloaded results file):</p>
     <input type="text" id="rater-name-input" placeholder="e.g. PaulD" />
-    <button type="button" class="action-btn" id="rater-name-submit">Start rating →</button>
+
+    <p style="margin-top: 14px; color: #555; font-size: 13px;">
+      The session typically takes 30–60 minutes. The system asks until your
+      ranking of all 14 problems is stable.
+    </p>
+
+    <div style="margin-top: 18px;">
+      <button type="button" class="action-btn" id="rater-name-submit">Start rating →</button>
+    </div>
   </div>
 
   <div class="welcome-section welcome-resume">
@@ -579,6 +613,450 @@ const DATA = {
 
 <script>
 // =============================================
+// PART 0: PURE MATH (DOM-free, DATA-free; safe to extract for Node testing)
+// Bayesian Davidson Bradley-Terry + Laplace posterior.
+// Functions exported on globalThis.WSTMath. Lifted from
+// templates/topup_adaptive_template.html so the main rating UI can use the
+// same MAP fit + Σ → posterior rank sampling pipeline. KEEP IN SYNC.
+// =============================================
+(function (root) {
+  // erf via Abramowitz & Stegun 7.1.26 (max abs error ~1.5e-7).
+  function erf(x) {
+    const sign = x < 0 ? -1 : 1;
+    const ax = Math.abs(x);
+    const a1 =  0.254829592;
+    const a2 = -0.284496736;
+    const a3 =  1.421413741;
+    const a4 = -1.453152027;
+    const a5 =  1.061405429;
+    const p  =  0.3275911;
+    const t = 1.0 / (1.0 + p * ax);
+    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax);
+    return sign * y;
+  }
+  function normCdf(z) { return 0.5 * (1 + erf(z / Math.sqrt(2))); }
+
+  // Box-Muller standard normal sample.
+  function randnPair() {
+    let u1 = 0, u2 = 0;
+    while (u1 < 1e-12) u1 = Math.random();
+    while (u2 < 1e-12) u2 = Math.random();
+    const r = Math.sqrt(-2 * Math.log(u1));
+    return [r * Math.cos(2 * Math.PI * u2), r * Math.sin(2 * Math.PI * u2)];
+  }
+  function randn() { return randnPair()[0]; }
+
+  // Gauss-Jordan inverse for small dense square matrix. Returns null if singular.
+  function matInv(A, jitter) {
+    jitter = jitter || 0;
+    const n = A.length;
+    const M = [];
+    for (let i = 0; i < n; i++) {
+      const row = new Array(2 * n).fill(0);
+      for (let j = 0; j < n; j++) row[j] = A[i][j] + (i === j ? jitter : 0);
+      row[n + i] = 1;
+      M.push(row);
+    }
+    for (let k = 0; k < n; k++) {
+      let piv = k, pivAbs = Math.abs(M[k][k]);
+      for (let r = k + 1; r < n; r++) {
+        const v = Math.abs(M[r][k]);
+        if (v > pivAbs) { piv = r; pivAbs = v; }
+      }
+      if (pivAbs < 1e-14) return null;
+      if (piv !== k) { const tmp = M[k]; M[k] = M[piv]; M[piv] = tmp; }
+      const inv = 1.0 / M[k][k];
+      for (let j = 0; j < 2 * n; j++) M[k][j] *= inv;
+      for (let r = 0; r < n; r++) {
+        if (r === k) continue;
+        const f = M[r][k];
+        if (f === 0) continue;
+        for (let j = 0; j < 2 * n; j++) M[r][j] -= f * M[k][j];
+      }
+    }
+    const Inv = [];
+    for (let i = 0; i < n; i++) Inv.push(M[i].slice(n, 2 * n));
+    return Inv;
+  }
+  function matInvWithJitter(A) {
+    let j = 0;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const inv = matInv(A, j);
+      if (inv !== null) return { inv: inv, jitter: j };
+      j = j === 0 ? 1e-8 : j * 10;
+    }
+    return { inv: null, jitter: j };
+  }
+
+  // Cholesky factorisation A = L L^T for symmetric PD A. Returns lower L (n x n)
+  // or null if the matrix isn't PD even after small jitter. Used for posterior
+  // rank sampling: θ_sample = θ_map + L · z, z ~ N(0, I).
+  function cholesky(A, jitter) {
+    jitter = jitter || 0;
+    const n = A.length;
+    const L = [];
+    for (let i = 0; i < n; i++) L.push(new Array(n).fill(0));
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j <= i; j++) {
+        let s = (i === j ? A[i][i] + jitter : A[i][j]);
+        for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k];
+        if (i === j) {
+          if (s <= 0) return null;
+          L[i][j] = Math.sqrt(s);
+        } else {
+          L[i][j] = s / L[j][j];
+        }
+      }
+    }
+    return L;
+  }
+  function choleskyWithJitter(A) {
+    let j = 0;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const L = cholesky(A, j);
+      if (L !== null) return { L: L, jitter: j };
+      j = j === 0 ? 1e-9 : j * 10;
+    }
+    return { L: null, jitter: j };
+  }
+
+  // ---- Davidson-tie BT log-likelihood (per-comparison form) ----
+  function davidsonNll(theta, comparisons, nu) {
+    if (nu <= 0) {
+      let nll = 0;
+      for (const c of comparisons) {
+        const ti = theta[c.i], tj = theta[c.j];
+        const m = Math.max(ti, tj);
+        const lse = m + Math.log(Math.exp(ti - m) + Math.exp(tj - m));
+        if (c.outcome === "a") nll -= (ti - lse);
+        else if (c.outcome === "b") nll -= (tj - lse);
+        else nll -= 0.5 * (ti - lse) + 0.5 * (tj - lse);
+      }
+      return nll;
+    }
+    const log_nu = Math.log(nu);
+    let nll = 0;
+    for (const c of comparisons) {
+      const ti = theta[c.i], tj = theta[c.j];
+      const half = 0.5 * (ti + tj);
+      const a = ti, b = tj, cc = half + log_nu;
+      const m = Math.max(a, Math.max(b, cc));
+      const log_denom = m + Math.log(Math.exp(a - m) + Math.exp(b - m) + Math.exp(cc - m));
+      if (c.outcome === "a") nll -= (ti - log_denom);
+      else if (c.outcome === "b") nll -= (tj - log_denom);
+      else nll -= (cc - log_denom);
+    }
+    return nll;
+  }
+
+  function davidsonGrad(theta, comparisons, nu) {
+    const n = theta.length;
+    const grad = new Array(n).fill(0);
+    if (nu <= 0) {
+      for (const c of comparisons) {
+        const ti = theta[c.i], tj = theta[c.j];
+        const m = Math.max(ti, tj);
+        const ea = Math.exp(ti - m), eb = Math.exp(tj - m);
+        const D = ea + eb;
+        const pi = ea / D, pj = eb / D;
+        const ya = c.outcome === "a" ? 1 : 0;
+        const yb = c.outcome === "b" ? 1 : 0;
+        const yt = c.outcome === "tie" ? 1 : 0;
+        grad[c.i] += -(ya + 0.5 * yt) + (pi + 0.5 * yt);
+        grad[c.j] += -(yb + 0.5 * yt) + (pj + 0.5 * yt);
+      }
+      return grad;
+    }
+    const log_nu = Math.log(nu);
+    for (const c of comparisons) {
+      const ti = theta[c.i], tj = theta[c.j];
+      const half = 0.5 * (ti + tj);
+      const a = ti, b = tj, cc = half + log_nu;
+      const m = Math.max(a, Math.max(b, cc));
+      const ea = Math.exp(a - m), eb = Math.exp(b - m), ec = Math.exp(cc - m);
+      const D = ea + eb + ec;
+      const pi = ea / D, pj = eb / D, pt = ec / D;
+      const ya = c.outcome === "a" ? 1 : 0;
+      const yb = c.outcome === "b" ? 1 : 0;
+      const yt = c.outcome === "tie" ? 1 : 0;
+      grad[c.i] += -(ya + 0.5 * yt) + (pi + 0.5 * pt);
+      grad[c.j] += -(yb + 0.5 * yt) + (pj + 0.5 * pt);
+    }
+    return grad;
+  }
+
+  function davidsonHessFD(theta, comparisons, nu, eps) {
+    eps = eps || 1e-5;
+    const n = theta.length;
+    const H = [];
+    for (let i = 0; i < n; i++) H.push(new Array(n).fill(0));
+    for (let k = 0; k < n; k++) {
+      const tp = theta.slice(); tp[k] += eps;
+      const tm = theta.slice(); tm[k] -= eps;
+      const gp = davidsonGrad(tp, comparisons, nu);
+      const gm = davidsonGrad(tm, comparisons, nu);
+      for (let r = 0; r < n; r++) H[r][k] = (gp[r] - gm[r]) / (2 * eps);
+    }
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const m = 0.5 * (H[i][j] + H[j][i]);
+        H[i][j] = m; H[j][i] = m;
+      }
+    }
+    return H;
+  }
+
+  // posterior: ll(theta) - 0.5 * (theta - mu)^T P (theta - mu)
+  function davidsonMapFit(n_items, comparisons, nu, prior, opts) {
+    opts = opts || {};
+    const maxIter = opts.maxIter || 30;
+    const tol = opts.tol || 1e-6;
+    const dampMaxStep = opts.maxStep || 1.0;
+    const mu = prior.mean.slice();
+    const P = prior.precision;
+
+    function priorPart(theta) {
+      const n = theta.length;
+      const d = new Array(n);
+      for (let i = 0; i < n; i++) d[i] = theta[i] - mu[i];
+      const grad = new Array(n).fill(0);
+      let nlp = 0;
+      for (let i = 0; i < n; i++) {
+        let row = 0;
+        for (let j = 0; j < n; j++) row += P[i][j] * d[j];
+        grad[i] = row;
+        nlp += 0.5 * d[i] * row;
+      }
+      return { grad: grad, nlp: nlp };
+    }
+
+    function compute(theta) {
+      const grad = davidsonGrad(theta, comparisons, nu);
+      const ll = davidsonNll(theta, comparisons, nu);
+      const pp = priorPart(theta);
+      for (let i = 0; i < n_items; i++) grad[i] += pp.grad[i];
+      const dataHess = davidsonHessFD(theta, comparisons, nu, 1e-5);
+      const hess = [];
+      for (let i = 0; i < n_items; i++) {
+        const row = new Array(n_items).fill(0);
+        for (let j = 0; j < n_items; j++) row[j] = dataHess[i][j] + P[i][j];
+        hess.push(row);
+      }
+      return { grad: grad, hess: hess, nlp: ll + pp.nlp };
+    }
+
+    const theta = mu.slice();
+    let lastGradInf = Infinity;
+    let iters = 0;
+    let converged = false;
+    for (let it = 0; it < maxIter; it++) {
+      iters = it + 1;
+      const c = compute(theta);
+      let gInf = 0;
+      for (let k = 0; k < n_items; k++) gInf = Math.max(gInf, Math.abs(c.grad[k]));
+      lastGradInf = gInf;
+      if (gInf < tol) { converged = true; break; }
+      const negG = c.grad.map(g => -g);
+      const inv = matInvWithJitter(c.hess);
+      if (!inv.inv) {
+        for (let k = 0; k < n_items; k++) theta[k] -= 0.05 * c.grad[k];
+      } else {
+        const delta = new Array(n_items).fill(0);
+        for (let r = 0; r < n_items; r++) {
+          let s = 0;
+          for (let cc = 0; cc < n_items; cc++) s += inv.inv[r][cc] * negG[cc];
+          delta[r] = s;
+        }
+        let mx = 0;
+        for (let k = 0; k < n_items; k++) mx = Math.max(mx, Math.abs(delta[k]));
+        const scale = mx > dampMaxStep ? (dampMaxStep / mx) : 1.0;
+        for (let k = 0; k < n_items; k++) theta[k] += scale * delta[k];
+      }
+    }
+    const final = compute(theta);
+    return {
+      theta: theta,
+      hessian: final.hess,
+      iters: iters,
+      converged: converged,
+      gradInf: lastGradInf,
+      nlp: final.nlp,
+    };
+  }
+
+  // Posterior covariance for informative-prior case: just H^{-1}, no projection.
+  function laplaceCovDirect(hessian) {
+    const r = matInvWithJitter(hessian);
+    if (!r.inv) return null;
+    const n = hessian.length;
+    const Sigma = [];
+    for (let i = 0; i < n; i++) Sigma.push(r.inv[i].slice());
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const m = 0.5 * (Sigma[i][j] + Sigma[j][i]);
+        Sigma[i][j] = m; Sigma[j][i] = m;
+      }
+    }
+    return Sigma;
+  }
+
+  function probABetter(mu_i, mu_j, sii, sjj, sij) {
+    const v = sii + sjj - 2 * sij;
+    if (!isFinite(v) || v <= 1e-12) {
+      if (mu_i > mu_j + 1e-9) return 1.0;
+      if (mu_i < mu_j - 1e-9) return 0.0;
+      return 0.5;
+    }
+    return normCdf((mu_i - mu_j) / Math.sqrt(v));
+  }
+
+  function diffVar(sii, sjj, sij) {
+    const v = sii + sjj - 2 * sij;
+    return v < 0 ? 0 : v;
+  }
+
+  // ---- Posterior rank sampling ----
+  // Draw K θ-samples from N(θ_map, Σ) using L = chol(Σ); for each, return the
+  // 1-based rank vector (rank 1 = highest θ). NOT bootstrap resampling — this
+  // samples from the Laplace posterior at the current MAP.
+  function posteriorRankSampling(theta_map, Sigma, K) {
+    const n = theta_map.length;
+    K = K || 500;
+    const fact = choleskyWithJitter(Sigma);
+    if (!fact.L) return null;
+    const L = fact.L;
+    // P(rank == r) marginal table: counts[i][r-1] = # samples where item i had rank r.
+    const counts = [];
+    for (let i = 0; i < n; i++) counts.push(new Array(n).fill(0));
+    for (let s = 0; s < K; s++) {
+      const z = new Array(n);
+      for (let i = 0; i < n; i++) z[i] = randn();
+      const sample = new Array(n);
+      for (let i = 0; i < n; i++) {
+        let v = theta_map[i];
+        for (let j = 0; j <= i; j++) v += L[i][j] * z[j];
+        sample[i] = v;
+      }
+      // Rank: index i's rank = 1 + # of items with strictly larger θ.
+      const idxs = sample.map((v, i) => i)
+        .sort((a, b) => sample[b] - sample[a]);  // descending
+      for (let r = 0; r < n; r++) counts[idxs[r]][r] += 1;
+    }
+    const probs = [];
+    for (let i = 0; i < n; i++) {
+      const row = new Array(n);
+      for (let r = 0; r < n; r++) row[r] = counts[i][r] / K;
+      probs.push(row);
+    }
+    return { rankProbs: probs, K: K };
+  }
+
+  root.WSTMath = {
+    erf: erf,
+    normCdf: normCdf,
+    randn: randn,
+    matInv: matInv,
+    matInvWithJitter: matInvWithJitter,
+    cholesky: cholesky,
+    choleskyWithJitter: choleskyWithJitter,
+    laplaceCovDirect: laplaceCovDirect,
+    probABetter: probABetter,
+    diffVar: diffVar,
+    davidsonNll: davidsonNll,
+    davidsonGrad: davidsonGrad,
+    davidsonHessFD: davidsonHessFD,
+    davidsonMapFit: davidsonMapFit,
+    posteriorRankSampling: posteriorRankSampling,
+  };
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script>
+
+<script>
+// =============================================
+// PART 0b: SELF-TESTS for the math (run on every load; verbose with ?test=1)
+// =============================================
+(function () {
+  if (typeof globalThis === 'undefined' || !globalThis.WSTMath) {
+    console.error("[math self-test] WSTMath not exported");
+    return;
+  }
+  const M = globalThis.WSTMath;
+  const verbose = (typeof location !== 'undefined') &&
+                  new URLSearchParams(location.search).get("test") === "1";
+  const log = verbose ? (...a) => console.log("[math self-test]", ...a) : () => {};
+  let failed = 0;
+  function check(label, cond, info) {
+    if (!cond) { failed++; console.error("[math self-test FAIL]", label, info); }
+    else log(label, "PASS", info || "");
+  }
+
+  // T1: prior-only MAP equals prior mean.
+  {
+    const prior = { mean: [1.0, 0.0], precision: [[10, 0], [0, 10]] };
+    const r = M.davidsonMapFit(2, [], 0.2, prior, { maxIter: 30 });
+    check("T1 prior-only MAP=mu", Math.abs(r.theta[0] - 1.0) < 1e-3 && Math.abs(r.theta[1] - 0.0) < 1e-3, r.theta);
+    check("T1 prior-only converges", r.converged, { iters: r.iters });
+  }
+
+  // T2: P-formula sanity. Sigma=I, mu=[1,0]: P(0>1) = Phi(1/sqrt(2)).
+  {
+    const p = M.probABetter(1, 0, 1, 1, 0);
+    check("T2 P-formula matches Phi", Math.abs(p - 0.7602499) < 0.005, { p: p });
+  }
+
+  // T3: Sharp posterior resolves. mu=[2,0], Sigma=diag(0.1).
+  {
+    const p = M.probABetter(2, 0, 0.1, 0.1, 0);
+    check("T3 sharp posterior resolves", p > 0.999, { p: p });
+  }
+
+  // T4: Cholesky of identity is identity.
+  {
+    const I3 = [[1,0,0],[0,1,0],[0,0,1]];
+    const L = M.cholesky(I3, 0);
+    const ok = L && Math.abs(L[0][0]-1)<1e-9 && Math.abs(L[1][1]-1)<1e-9 && Math.abs(L[2][2]-1)<1e-9
+      && Math.abs(L[1][0])<1e-9 && Math.abs(L[2][1])<1e-9;
+    check("T4 cholesky(I) = I", ok, L);
+  }
+
+  // T5: Cholesky reconstructs A. A = [[2,1],[1,2]] → L L^T = A.
+  {
+    const A = [[2,1],[1,2]];
+    const L = M.cholesky(A, 0);
+    const a00 = L[0][0]*L[0][0];
+    const a10 = L[1][0]*L[0][0];
+    const a11 = L[1][0]*L[1][0] + L[1][1]*L[1][1];
+    check("T5 cholesky reconstructs", Math.abs(a00-2)<1e-9 && Math.abs(a10-1)<1e-9 && Math.abs(a11-2)<1e-9, { a00, a10, a11 });
+  }
+
+  // T6: posterior rank sampling — synthetic 3-item, theta=[2,0,-2], Sigma=0.05*I.
+  // Within MC noise (K=500), P(item 0 in top-1) should be ≈ 1.0.
+  {
+    const theta = [2, 0, -2];
+    const S = [[0.05, 0, 0], [0, 0.05, 0], [0, 0, 0.05]];
+    const r = M.posteriorRankSampling(theta, S, 500);
+    check("T6 posterior rank sampling returns probs", r && r.rankProbs && r.rankProbs.length === 3, r);
+    if (r) {
+      // P(item 0 has rank 1) = rankProbs[0][0]
+      check("T6 P(item0 in top-1) ≈ 1", r.rankProbs[0][0] > 0.95, { p: r.rankProbs[0][0] });
+      // P(item 2 has rank 3) = rankProbs[2][2]
+      check("T6 P(item2 in bottom-1) ≈ 1", r.rankProbs[2][2] > 0.95, { p: r.rankProbs[2][2] });
+    }
+  }
+
+  if (failed > 0) {
+    console.error("[math self-test] " + failed + " assertion(s) FAILED");
+  } else if (verbose) {
+    console.log("[math self-test] all checks passed");
+  }
+  if (typeof globalThis !== 'undefined') {
+    globalThis.WSTMathSelfTestFailures = failed;
+  }
+})();
+</script>
+
+<script>
+// =============================================
 // PART 1: RENDER LAYER
 // =============================================
 
@@ -664,146 +1142,408 @@ renderPair(DATA.problems[0].id, DATA.problems[1].id, "observability");
 console.log("Render smoke test passed");
 
 // =============================================
-// PART 2: BRADLEY-TERRY ALGORITHM
+// PART 2: BAYESIAN DAVIDSON-BT ENGINE (replaces online Elo)
 // =============================================
+//
+// Engine: Davidson-tie BT MAP fit on every comparison, with a weak Gaussian
+// prior (σ=2) anchoring the location. After each fit we compute Σ via Laplace
+// (H^{-1}) and run posterior rank sampling (K=500 draws from N(θ_map, Σ)) to
+// derive marginal block-membership probabilities. Both modes share this
+// engine; mode is purely a stopping/selection toggle.
+//
+// Modes:
+//   - "full": legacy behaviour. Selection = smallest-Δ-undersampled. Stopping =
+//     rank order stable for STABLE_RUNS=3 consecutive cycles, FLOOR=25,
+//     CEILING=60.
+//   - "quick": Option A — soft block stability. Selection = boundary-weighted
+//     IG (post-floor). Stopping = ≥QUICK_BLOCK_HITS items soft-block-stable
+//     (modal_mass ≥ QUICK_MODAL_THRESH AND runner_up_mass ≤ QUICK_RUNNERUP_CAP)
+//     for QUICK_STABLE_RUNS=2 consecutive post-comparison refits.
+//
+// Floor (per criterion, Quick-only): n ≥ FLOOR_N (25), every item touched ≥
+// FLOOR_MIN_TOUCHES (2), comparison graph connected. Until all three hold we
+// use the legacy smallest-Δ picker so we cover the graph fast.
 
-const ETA = 0.3;          // learning rate
-const TIE_PULL = 0.25;    // tie update strength
-const TIE_THRESH = 0.05;  // adjacent-rank tie cutoff
-const FLOOR = 25;         // min comparisons before stopping
-const CEILING = 60;       // max comparisons (force stop)
-const STABLE_RUNS = 3;    // identical snapshots needed for stop
-const MIN_TOUCHES = 3;    // each item must be compared at least this many times
-const COLD_START = 3;     // first N comparisons are random
+// Prior + tie-parameter
+const PRIOR_SIGMA = 2.0;
+const PRIOR_PRECISION_DIAG = 1.0 / (PRIOR_SIGMA * PRIOR_SIGMA);  // 0.25
+const TIE_NU = 0.2;
+
+// Full mode (legacy) constants
+const TIE_THRESH = 0.05;
+const FLOOR = 25;
+const CEILING = 60;
+const STABLE_RUNS = 3;
+const MIN_TOUCHES = 3;
+const COLD_START = 3;
+
+// Quick mode constants (Option A: soft block stability)
+const QUICK_FLOOR_N = 25;
+const QUICK_FLOOR_MIN_TOUCHES = 2;
+const QUICK_BLOCK_TOP = 3;          // ranks 1..3
+const QUICK_BLOCK_BOTTOM = 3;       // last 3
+const QUICK_MODAL_THRESH = 0.65;    // modal_mass ≥ this
+const QUICK_RUNNERUP_CAP = 0.30;    // runner_up_mass ≤ this
+const QUICK_BLOCK_HITS = 10;        // need ≥10 of 14 items soft-stable
+const QUICK_STABLE_RUNS = 2;
+const QUICK_BOUNDARY_FLOOR = 0.1;
+const QUICK_PROJECTED_TOTAL = 30;
+const FULL_PROJECTED_TOTAL = 33;
+const POSTERIOR_RANK_K = 500;
 
 function newCriterionState(problemIds) {
-  const theta = {}, count = {};
-  problemIds.forEach(id => { theta[id] = 0; count[id] = 0; });
+  const count = {};
+  problemIds.forEach(id => { count[id] = 0; });
   return {
-    theta,
+    pids: problemIds.slice(),       // canonical ordering used by the Bayesian fit
     comparison_count: count,
-    history: [],
+    history: [],                    // chronological log
+    // Bayesian fit outputs (refreshed after every comparison; nullable until first fit):
+    fit: { theta_map: null, sigma_theta: null, posterior_ranks: null, iters: 0, converged: false },
+    // Snapshots used by the Full-mode rank-stable test (joined ids string):
     rank_snapshot_history: [],
+    // Snapshots used by the Quick-mode block-stable test:
+    quick_block_history: [],        // array of integers (count of items meeting threshold)
+    quick_block_assignments: null,  // most recent { pid -> "top"|"mid"|"bot" } (modal block)
+    quick_p_in_block: null,         // most recent { pid -> modal_mass } (now P(in modal block))
+    quick_runner_up: null,          // most recent { pid -> runner_up_mass }
+    quick_soft_stable: null,        // most recent { pid -> bool } (item is soft-block-stable)
     done: false,
-    stopped_reason: null
+    stopped_reason: null,
+    undo_stack: []
   };
 }
 
-function update(state, a_id, b_id, outcome) {
-  // Save snapshot for undo (cap at 10 entries to bound memory)
-  if (!state.undo_stack) state.undo_stack = [];
-  state.undo_stack.push({
-    theta: { ...state.theta },
-    comparison_count: { ...state.comparison_count },
-    rank_snapshot_history_len: state.rank_snapshot_history.length,
-    stopped_reason: state.stopped_reason,
-    done: state.done
-  });
-  if (state.undo_stack.length > 10) state.undo_stack.shift();
-  const a = state.theta[a_id], b = state.theta[b_id];
-  if (outcome === "tie") {
-    const mid = (a + b) / 2;
-    state.theta[a_id] = a + ETA * TIE_PULL * (mid - a);
-    state.theta[b_id] = b + ETA * TIE_PULL * (mid - b);
-  } else {
-    const winner = (outcome === "a") ? a_id : b_id;
-    const loser  = (outcome === "a") ? b_id : a_id;
-    const w = state.theta[winner], l = state.theta[loser];
-    const p = 1 / (1 + Math.exp(l - w));
-    state.theta[winner] = w + ETA * (1 - p);
-    state.theta[loser]  = l - ETA * (1 - p);
-  }
-  state.comparison_count[a_id]++;
-  state.comparison_count[b_id]++;
-  // a_id is the displayed-LEFT problem and b_id is the displayed-RIGHT problem
-  // (renderPair always shows currentPair.a_id on the left). We log left_id/right_id
-  // additively so post-hoc analysis can detect side bias; existing winner/loser
-  // semantics via outcome ("a"/"b"/"tie") are preserved unchanged.
-  state.history.push({
-    a_id, b_id, outcome,
-    left_id: a_id, right_id: b_id,
-    ts: new Date().toISOString()
-  });
-  state.rank_snapshot_history.push(currentRanking(state).map(r => r.id).join(","));
-  if (state.rank_snapshot_history.length > STABLE_RUNS + 2) state.rank_snapshot_history.shift();
-}
-
 function currentRanking(state) {
-  return Object.keys(state.theta)
-    .map(id => ({ id, theta: state.theta[id] }))
+  // Rank by MAP θ; if the fit hasn't run yet, return zero-θ stable order.
+  const theta = state.fit.theta_map || state.pids.map(_ => 0);
+  return state.pids
+    .map((id, i) => ({ id, theta: theta[i] }))
     .sort((a, b) => b.theta - a.theta);
 }
 
-function median(arr) {
-  const sorted = arr.slice().sort((a, b) => a - b);
-  const m = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+function _buildComparisonsForFit(state) {
+  const idx = {}; state.pids.forEach((p, i) => { idx[p] = i; });
+  const out = [];
+  for (const h of state.history) {
+    if (!(h.a_id in idx) || !(h.b_id in idx)) continue;
+    out.push({ i: idx[h.a_id], j: idx[h.b_id], outcome: h.outcome });
+  }
+  return out;
 }
 
-function recentlyCompared(state, a_id, b_id, k = 3) {
+function _identityPrecision(n, diag) {
+  const P = [];
+  for (let i = 0; i < n; i++) {
+    const row = new Array(n).fill(0);
+    row[i] = diag;
+    P.push(row);
+  }
+  return P;
+}
+
+function refitBayesian(state) {
+  // Fresh-rater: weak Gaussian prior at zero, σ=2. No informative prior.
+  const M = globalThis.WSTMath;
+  const n = state.pids.length;
+  const comparisons = _buildComparisonsForFit(state);
+  const prior = {
+    mean: new Array(n).fill(0),
+    precision: _identityPrecision(n, PRIOR_PRECISION_DIAG),
+  };
+  const r = M.davidsonMapFit(n, comparisons, TIE_NU, prior, { maxIter: 30, tol: 1e-6, maxStep: 1.0 });
+  const Sigma = M.laplaceCovDirect(r.hessian);
+  state.fit.theta_map = r.theta;
+  state.fit.sigma_theta = Sigma;
+  state.fit.iters = r.iters;
+  state.fit.converged = r.converged;
+  // Posterior rank sampling — defines marginal P(item rank == r) over the K draws.
+  if (Sigma) {
+    state.fit.posterior_ranks = M.posteriorRankSampling(r.theta, Sigma, POSTERIOR_RANK_K);
+  } else {
+    state.fit.posterior_ranks = null;
+  }
+}
+
+// Block helper (Option A: soft block stability).
+// For each item, compute (P_top, P_mid, P_bot) by summing posterior rank probs
+// across the three block rank-ranges. modal_mass = max of three; runner_up =
+// second-largest. Item is soft-block-stable iff modal_mass ≥ QUICK_MODAL_THRESH
+// AND runner_up_mass ≤ QUICK_RUNNERUP_CAP. assign[pid] = the modal block
+// (used for display only — does NOT enter the stop test).
+function quickComputeBlockState(state) {
+  const ranking = currentRanking(state);  // sorted descending
+  const n = ranking.length;
+  if (n < QUICK_BLOCK_TOP + QUICK_BLOCK_BOTTOM) return null;
+  const rp = state.fit.posterior_ranks ? state.fit.posterior_ranks.rankProbs : null;
+  if (!rp) return null;
+  const idx = {}; state.pids.forEach((p, i) => { idx[p] = i; });
+  const assign = {};
+  const blockDist = {};   // pid -> [P_top, P_mid, P_bot]
+  const modalMass = {};
+  const runnerUpMass = {};
+  const softStable = {};
+  for (const pid of state.pids) {
+    const i = idx[pid];
+    const row = rp[i];
+    let pTop = 0, pMid = 0, pBot = 0;
+    for (let r = 0; r < n; r++) {
+      if (r < QUICK_BLOCK_TOP) pTop += row[r];
+      else if (r >= n - QUICK_BLOCK_BOTTOM) pBot += row[r];
+      else pMid += row[r];
+    }
+    blockDist[pid] = [pTop, pMid, pBot];
+    // Modal block by argmax of the three masses.
+    let modalLabel = "top", modalP = pTop;
+    if (pMid > modalP) { modalLabel = "mid"; modalP = pMid; }
+    if (pBot > modalP) { modalLabel = "bot"; modalP = pBot; }
+    assign[pid] = modalLabel;
+    // Runner-up = max of the remaining two.
+    const sorted = [pTop, pMid, pBot].slice().sort((a, b) => b - a);
+    modalMass[pid] = sorted[0];
+    runnerUpMass[pid] = sorted[1];
+    softStable[pid] = (sorted[0] >= QUICK_MODAL_THRESH) && (sorted[1] <= QUICK_RUNNERUP_CAP);
+  }
+  return { assign, blockDist, modalMass, runnerUpMass, softStable };
+}
+
+// Boundary relevance for Quick-mode pair selection. High when at least one item
+// has non-trivial probability of crossing a block boundary (top↔mid: ranks 3,4
+// in 0-indexed: indices 2,3; mid↔bot: indices n-4, n-3).
+function quickBoundaryRelevance(state, idA, idB) {
+  const rp = state.fit.posterior_ranks ? state.fit.posterior_ranks.rankProbs : null;
+  if (!rp) return QUICK_BOUNDARY_FLOOR;
+  const idx = {}; state.pids.forEach((p, i) => { idx[p] = i; });
+  const n = state.pids.length;
+  const topMidA = QUICK_BLOCK_TOP - 1;       // rank 3 (0-idx 2)
+  const topMidB = QUICK_BLOCK_TOP;           // rank 4 (0-idx 3)
+  const midBotA = n - QUICK_BLOCK_BOTTOM - 1;  // rank 11 in n=14 (0-idx 10)
+  const midBotB = n - QUICK_BLOCK_BOTTOM;      // rank 12 in n=14 (0-idx 11)
+  function pBoundary(pid) {
+    const i = idx[pid];
+    const row = rp[i];
+    return Math.max(
+      (row[topMidA] || 0) + (row[topMidB] || 0),
+      (row[midBotA] || 0) + (row[midBotB] || 0)
+    );
+  }
+  const r = Math.max(pBoundary(idA), pBoundary(idB));
+  return Math.max(r, QUICK_BOUNDARY_FLOOR);
+}
+
+// Per-criterion floor: n ≥ FLOOR_N, every item touched ≥ FLOOR_MIN_TOUCHES, and
+// the comparison graph (items=nodes, comparisons=edges) is connected.
+function _graphConnected(state) {
+  const n = state.pids.length;
+  if (n === 0) return true;
+  if (state.history.length === 0) return false;
+  const idx = {}; state.pids.forEach((p, i) => { idx[p] = i; });
+  // Union-Find
+  const parent = state.pids.map((_, i) => i);
+  function find(x) { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+  function union(x, y) { const rx = find(x), ry = find(y); if (rx !== ry) parent[rx] = ry; }
+  for (const h of state.history) {
+    if (!(h.a_id in idx) || !(h.b_id in idx)) continue;
+    union(idx[h.a_id], idx[h.b_id]);
+  }
+  const root0 = find(0);
+  for (let i = 1; i < n; i++) if (find(i) !== root0) return false;
+  return true;
+}
+
+function quickFloorMet(state) {
+  if (state.history.length < QUICK_FLOOR_N) return false;
+  for (const c of Object.values(state.comparison_count)) {
+    if (c < QUICK_FLOOR_MIN_TOUCHES) return false;
+  }
+  return _graphConnected(state);
+}
+
+// ---- Selection ----
+function _recentlyCompared(state, a_id, b_id, k = 3) {
   const recent = state.history.slice(-k);
   return recent.some(h =>
     (h.a_id === a_id && h.b_id === b_id) ||
     (h.a_id === b_id && h.b_id === a_id)
   );
 }
+function _median(arr) {
+  const s = arr.slice().sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
 
-function pickNextPair(state, problemIds) {
-  // Cold start: random pairs for first COLD_START comparisons
-  if (state.history.length < COLD_START) {
-    let a, b;
-    do {
-      a = problemIds[Math.floor(Math.random() * problemIds.length)];
-      b = problemIds[Math.floor(Math.random() * problemIds.length)];
-    } while (a === b || recentlyCompared(state, a, b));
-    return [a, b];
-  }
-  const counts = problemIds.map(id => state.comparison_count[id]);
-  const med = median(counts);
-  const undersampled = problemIds.filter(id => state.comparison_count[id] <= med);
-  const pool = undersampled.length >= 2 ? undersampled : problemIds;
-  // Score every pair by |Δθ|, exclude recent
+// Fallback / Full-mode selector: smallest-|Δθ_map| among undersampled items,
+// excluding very-recently-compared pairs.
+function _pickSmallestDeltaUndersampled(state) {
+  const ids = state.pids;
+  const counts = ids.map(id => state.comparison_count[id]);
+  const med = _median(counts);
+  const undersampled = ids.filter(id => state.comparison_count[id] <= med);
+  const pool = undersampled.length >= 2 ? undersampled : ids;
+  const idx = {}; ids.forEach((p, i) => { idx[p] = i; });
+  const theta = state.fit.theta_map || ids.map(_ => 0);
   let best = null, bestDelta = Infinity;
   for (let i = 0; i < pool.length; i++) {
     for (let j = i + 1; j < pool.length; j++) {
       const a = pool[i], b = pool[j];
-      if (recentlyCompared(state, a, b)) continue;
-      const delta = Math.abs(state.theta[a] - state.theta[b]);
+      if (_recentlyCompared(state, a, b)) continue;
+      const delta = Math.abs(theta[idx[a]] - theta[idx[b]]);
       if (delta < bestDelta) { bestDelta = delta; best = [a, b]; }
     }
   }
   if (!best) {
-    // fallback: shuffle to escape stuck state
-    const shuffled = problemIds.slice().sort(() => Math.random() - 0.5);
+    const shuffled = ids.slice().sort(() => Math.random() - 0.5);
     best = [shuffled[0], shuffled[1]];
   }
   return best;
 }
 
-function isDone(state) {
+// Quick-mode boundary-weighted IG selector: score = Var(θ_a - θ_b) * boundary_relevance,
+// with a 0.5× anti-repetition penalty for the immediately previous pair.
+//
+// SPEC DEVIATION (small, intentional): we additionally divide the score by
+// `1 + 0.25 * (touches[a] + touches[b])` to discourage picker fixation on a
+// single high-BR boundary item. Without this, the boundary item with the
+// largest posterior uncertainty about its block hogs comparisons until its
+// own variance drops, but boundary_relevance shrinks slowly relative to
+// touches, so it ends up with 25+ touches while interior items get 5–8 — and
+// the system never reaches the ≥12 / 14 stopping threshold inside the
+// CEILING=60 budget. Engine sanity testing showed Quick reliably converges
+// (12–13 hits) only at 85–122 comparisons under the unmoderated picker; with
+// this softener it converges within 30–55. The 0.25 coefficient is mild
+// enough that high-BR pairs still dominate over low-BR pairs at equal touches
+// — it just prevents one pair from being chosen 4× in a row.
+function _pickBoundaryWeightedIG(state) {
+  const M = globalThis.WSTMath;
+  const ids = state.pids;
+  const idx = {}; ids.forEach((p, i) => { idx[p] = i; });
+  const Sigma = state.fit.sigma_theta;
+  if (!Sigma) return _pickSmallestDeltaUndersampled(state);
+  const lastH = state.history[state.history.length - 1];
+  const lastKey = lastH ? (lastH.a_id < lastH.b_id ? lastH.a_id + "__" + lastH.b_id : lastH.b_id + "__" + lastH.a_id) : null;
+  let best = null, bestScore = -Infinity;
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const a = ids[i], b = ids[j];
+      const v = M.diffVar(Sigma[idx[a]][idx[a]], Sigma[idx[b]][idx[b]], Sigma[idx[a]][idx[b]]);
+      const br = quickBoundaryRelevance(state, a, b);
+      const k = a < b ? a + "__" + b : b + "__" + a;
+      const penalty = (k === lastKey) ? 0.5 : 1.0;
+      const touchPenalty = 1.0 / (1.0 + 0.25 * (state.comparison_count[a] + state.comparison_count[b]));
+      const score = v * br * penalty * touchPenalty;
+      if (score > bestScore) { bestScore = score; best = [a, b]; }
+    }
+  }
+  if (!best) return _pickSmallestDeltaUndersampled(state);
+  return best;
+}
+
+function pickNextPair(state, problemIds, mode) {
+  // Three branches: Full → smallest-Δ; Quick + floor not met → smallest-Δ;
+  // Quick + floor met → boundary-weighted IG.
+  if (mode === "quick" && quickFloorMet(state)) {
+    return _pickBoundaryWeightedIG(state);
+  }
+  return _pickSmallestDeltaUndersampled(state);
+}
+
+// ---- Update (called after every comparison) ----
+function update(state, a_id, b_id, outcome, mode) {
+  // Snapshot for undo (cap at 10 entries)
+  state.undo_stack.push({
+    history_len: state.history.length,
+    comparison_count: { ...state.comparison_count },
+    rank_snapshot_history_len: state.rank_snapshot_history.length,
+    quick_block_history_len: state.quick_block_history.length,
+    stopped_reason: state.stopped_reason,
+    done: state.done,
+    fit: state.fit ? {
+      theta_map: state.fit.theta_map ? state.fit.theta_map.slice() : null,
+      sigma_theta: state.fit.sigma_theta ? state.fit.sigma_theta.map(r => r.slice()) : null,
+      posterior_ranks: state.fit.posterior_ranks,
+      iters: state.fit.iters,
+      converged: state.fit.converged,
+    } : null,
+    quick_block_assignments: state.quick_block_assignments,
+    quick_p_in_block: state.quick_p_in_block,
+    quick_runner_up: state.quick_runner_up,
+    quick_soft_stable: state.quick_soft_stable,
+  });
+  if (state.undo_stack.length > 10) state.undo_stack.shift();
+
+  state.comparison_count[a_id]++;
+  state.comparison_count[b_id]++;
+  state.history.push({
+    a_id, b_id, outcome,
+    left_id: a_id, right_id: b_id,
+    ts: new Date().toISOString()
+  });
+
+  // Refit Bayesian engine.
+  refitBayesian(state);
+
+  // Snapshot for Full-mode rank stability.
+  state.rank_snapshot_history.push(currentRanking(state).map(r => r.id).join(","));
+  if (state.rank_snapshot_history.length > STABLE_RUNS + 2) state.rank_snapshot_history.shift();
+
+  // Snapshot for Quick-mode soft-block-stable count.
+  const blockState = quickComputeBlockState(state);
+  if (blockState) {
+    state.quick_block_assignments = blockState.assign;
+    state.quick_p_in_block = blockState.modalMass;
+    state.quick_runner_up = blockState.runnerUpMass;
+    state.quick_soft_stable = blockState.softStable;
+    let nHits = 0;
+    for (const pid of state.pids) {
+      if (blockState.softStable[pid]) nHits++;
+    }
+    state.quick_block_history.push(nHits);
+    if (state.quick_block_history.length > QUICK_STABLE_RUNS + 2) state.quick_block_history.shift();
+  } else {
+    state.quick_block_history.push(0);
+    if (state.quick_block_history.length > QUICK_STABLE_RUNS + 2) state.quick_block_history.shift();
+  }
+}
+
+function isDone(state, mode) {
   const n = state.history.length;
-  if (n >= CEILING) { state.stopped_reason = "ceiling_60"; return true; }
+  if (n >= CEILING) { state.stopped_reason = "comparison_cap"; return true; }
+  if (mode === "quick") {
+    // Quick mode: soft-block-stable stopping (Option A).
+    if (!quickFloorMet(state)) return false;
+    const tail = state.quick_block_history.slice(-QUICK_STABLE_RUNS);
+    if (tail.length < QUICK_STABLE_RUNS) return false;
+    const allHit = tail.every(h => h >= QUICK_BLOCK_HITS);
+    if (allHit) { state.stopped_reason = "quick_soft_block_stable"; return true; }
+    return false;
+  }
+  // Full mode: rank stable for 3 consecutive cycles.
   if (n < FLOOR) return false;
   const allTouched = Object.values(state.comparison_count).every(c => c >= MIN_TOUCHES);
   if (!allTouched) return false;
   const snaps = state.rank_snapshot_history.slice(-STABLE_RUNS);
   if (snaps.length < STABLE_RUNS) return false;
   const stable = snaps.every(s => s === snaps[0]);
-  if (stable) { state.stopped_reason = "3_stable_cycles"; return true; }
+  if (stable) { state.stopped_reason = "rank_stable_3cycles"; return true; }
   return false;
 }
 
 function undoLast(state) {
-  // Returns the popped history entry (the comparison the user wants to redo), or null.
   if (!state.history || state.history.length === 0) return null;
   if (!state.undo_stack || state.undo_stack.length === 0) return null;
   const lastEntry = state.history.pop();
   const snap = state.undo_stack.pop();
-  state.theta = snap.theta;
   state.comparison_count = snap.comparison_count;
   state.rank_snapshot_history.length = snap.rank_snapshot_history_len;
+  state.quick_block_history.length = snap.quick_block_history_len;
   state.stopped_reason = snap.stopped_reason;
   state.done = snap.done;
+  state.fit = snap.fit || { theta_map: null, sigma_theta: null, posterior_ranks: null, iters: 0, converged: false };
+  state.quick_block_assignments = snap.quick_block_assignments;
+  state.quick_p_in_block = snap.quick_p_in_block;
+  state.quick_runner_up = snap.quick_runner_up;
+  state.quick_soft_stable = snap.quick_soft_stable;
   return lastEntry;
 }
 
@@ -820,20 +1560,20 @@ function finalRanksWithTies(state) {
   return ranks;
 }
 
-// SMOKE TEST — run on load
+// SMOKE TEST — engine boots and refits a tiny case.
 (function algoSmokeTest() {
   const ids = ["a", "b", "c", "d"];
   const s = newCriterionState(ids);
-  console.assert(s.theta.a === 0, "init theta zero");
-  console.assert(!isDone(s), "isDone should be false for fresh state");
-  update(s, "a", "b", "a");
-  console.assert(s.theta.a > 0, "winner theta should rise");
-  console.assert(s.theta.b < 0, "loser theta should fall");
-  update(s, "c", "d", "tie");
-  console.assert(Math.abs(s.theta.c) < 0.01, "tie barely moves theta from 0");
-  const [pa, pb] = pickNextPair(s, ids);
+  console.assert(s.comparison_count.a === 0, "init count zero");
+  console.assert(!isDone(s, "full"), "isDone(full) false on fresh state");
+  console.assert(!isDone(s, "quick"), "isDone(quick) false on fresh state");
+  update(s, "a", "b", "a", "full");
+  console.assert(s.fit.theta_map && s.fit.theta_map.length === 4, "refit produced theta_map of length 4");
+  console.assert(s.fit.theta_map[0] > s.fit.theta_map[1], "winner θ > loser θ after 1 comp");
+  update(s, "c", "d", "tie", "full");
+  const [pa, pb] = pickNextPair(s, ids, "full");
   console.assert(pa !== pb && ids.includes(pa) && ids.includes(pb), "pickNextPair returns valid distinct pair");
-  console.log("Algorithm smoke test passed");
+  console.log("Bayesian engine smoke test passed");
 })();
 
 // =============================================
@@ -844,58 +1584,91 @@ const SESSION = {
   problemIds: DATA.problems.map(p => p.id),
   criterionOrder: DATA.criteria.map(c => c.key),
   currentCriterionIdx: 0,
-  states: {}  // criterion_key → state
+  states: {},  // criterion_key → state
+  // Mode is permanently "full" — Quick mode was rolled back after the
+  // soft-block-stable validator showed insufficient block-conclusion
+  // preservation (see replay_quick_mode.json). The Bayesian engine still
+  // runs; only the mode toggle was removed from the UI.
+  mode: "full"
 };
 
 DATA.criteria.forEach(c => { SESSION.states[c.key] = newCriterionState(SESSION.problemIds); });
 
 let currentPair = null;  // { a_id, b_id }
 
-const PROJECTED_COMPARISONS = 33;  // midpoint estimate between FLOOR=25 and CEILING=60
-
 function projectedTotal(state) {
-  // Heuristic: bumped above PROJECTED_COMPARISONS when more pairs needed
+  // Mode-dependent projected total for the topbar counter.
+  const base = SESSION.mode === "quick" ? QUICK_PROJECTED_TOTAL : FULL_PROJECTED_TOTAL;
   const n = state.history.length;
-  return Math.max(PROJECTED_COMPARISONS, n + 5);
+  return Math.max(base, n + 5);
 }
 
 function advanceComparison() {
   const critKey = SESSION.criterionOrder[SESSION.currentCriterionIdx];
   const state = SESSION.states[critKey];
 
-  if (isDone(state)) {
+  if (isDone(state, SESSION.mode)) {
     showCriterionEnd(critKey);
     return;
   }
 
-  let [a, b] = pickNextPair(state, SESSION.problemIds);
-  // Fair coin flip: 50% chance of swapping left/right. Without this the BT picker
-  // returns pairs deterministically and the same problem keeps appearing on the
-  // same side, biasing raters who anchor on position. After the flip, a_id is
-  // always the LEFT-displayed problem and b_id is the RIGHT-displayed problem;
-  // recordChoice("a") therefore always means "left wins" from the rater's POV.
+  let [a, b] = pickNextPair(state, SESSION.problemIds, SESSION.mode);
+  // Fair coin flip: 50% chance of swapping left/right (avoids position bias).
   if (Math.random() < 0.5) { [a, b] = [b, a]; }
   currentPair = { a_id: a, b_id: b };
   renderTopbar(critKey, state.history.length + 1, projectedTotal(state));
   renderPair(a, b, critKey);
   updatePillProgress();
   updateBackButton();
+  updateModeStatus();
 }
 
 function updatePillProgress() {
   $$(".pill").forEach(pill => {
     const k = pill.dataset.criterion;
     const s = SESSION.states[k];
-    const filled = Math.min(5, Math.floor((s.history.length / PROJECTED_COMPARISONS) * 5));
+    const target = SESSION.mode === "quick" ? QUICK_PROJECTED_TOTAL : FULL_PROJECTED_TOTAL;
+    const filled = Math.min(5, Math.floor((s.history.length / target) * 5));
     pill.querySelector(".progress").textContent = "▮".repeat(filled) + "▯".repeat(5 - filled);
   });
+}
+
+function updateModeStatus() {
+  // Mode-aware progress line: Quick = "X/14 items soft-stable in their block (Y stable cycles).
+  // Comparison Z of ~max." Full = "Rank stable Y/3 cycles. Comparison Z of CEILING max."
+  const el = document.getElementById("mode-status");
+  if (!el) return;
+  const critKey = SESSION.criterionOrder[SESSION.currentCriterionIdx];
+  const state = SESSION.states[critKey];
+  const n = state.history.length;
+  if (SESSION.mode === "quick") {
+    let nHits = 0;
+    if (state.quick_soft_stable) {
+      for (const pid of state.pids) if (state.quick_soft_stable[pid]) nHits++;
+    }
+    const tail = state.quick_block_history.slice(-QUICK_STABLE_RUNS);
+    let stable = 0;
+    for (let i = tail.length - 1; i >= 0; i--) {
+      if (tail[i] >= QUICK_BLOCK_HITS) stable++; else break;
+    }
+    el.textContent = `Quick mode — ${nHits}/${state.pids.length} items soft-stable in their block (${stable} stable cycles). Comparison ${n + 1} of ~${QUICK_PROJECTED_TOTAL}.`;
+  } else {
+    const snaps = state.rank_snapshot_history.slice(-STABLE_RUNS);
+    let stable = 0;
+    if (snaps.length > 0) {
+      for (let i = snaps.length - 1; i >= 0; i--) {
+        if (snaps[i] === snaps[snaps.length - 1]) stable++; else break;
+      }
+    }
+    el.textContent = `Full mode — rank stable ${stable}/${STABLE_RUNS} cycles. Comparison ${n + 1} of ${CEILING} max.`;
+  }
 }
 
 function recordChoice(outcome) {
   if (!currentPair) return;  // guard: stray keydown before first render
   const critKey = SESSION.criterionOrder[SESSION.currentCriterionIdx];
   const state = SESSION.states[critKey];
-  update(state, currentPair.a_id, currentPair.b_id, outcome);
+  update(state, currentPair.a_id, currentPair.b_id, outcome, SESSION.mode);
   saveToLocalStorage();
   advanceComparison();
 }
@@ -993,9 +1766,14 @@ document.addEventListener("keydown", (e) => {
 // Session persistence (localStorage + Cloudflare Worker)
 // =============================================
 
-const STORAGE_KEY = "wst_rating_session_v1";
+// STORAGE_KEY bumped to v2: payload shape changed (Bayesian engine uses
+// `state.pids` + `state.fit.theta_map` array; older v1 payloads stored
+// `state.theta` as an object). Older sessions cannot be migrated cleanly so
+// we leave them in v1 keys (orphaned) and force a fresh start under v2.
+const STORAGE_KEY = "wst_rating_session_v2";
 const SESSION_CODE_KEY = "wst_rating_session_code";
 const WORKER_URL = "https://wst-rating.lutir99.workers.dev";
+const VALID_MODES = new Set(["quick", "full"]);
 
 function getSessionCode() { try { return localStorage.getItem(SESSION_CODE_KEY) || ""; } catch (e) { return ""; } }
 function setSessionCode(c) { try { localStorage.setItem(SESSION_CODE_KEY, c); } catch (e) {} }
@@ -1009,10 +1787,31 @@ function generateSessionCode() {
 }
 
 function buildSessionPayload() {
+  // Strip the live fit.posterior_ranks object (contains 14×14 prob table per
+  // criterion — recomputable on resume from comparisons + refit). We persist
+  // theta_map and sigma_theta so resume can render immediately, but the
+  // resume hydrator will refit anyway to keep things deterministic.
+  const states = {};
+  for (const k of Object.keys(SESSION.states)) {
+    const s = SESSION.states[k];
+    states[k] = {
+      pids: s.pids,
+      comparison_count: s.comparison_count,
+      history: s.history,
+      rank_snapshot_history: s.rank_snapshot_history,
+      quick_block_history: s.quick_block_history,
+      stopped_reason: s.stopped_reason,
+      done: s.done,
+      // fit and quick_block_assignments / quick_p_in_block are recomputable; do
+      // not persist (saves payload size and dodges round-trip drift).
+    };
+  }
   return {
+    engine: "davidson_laplace_v1",
+    mode: SESSION.mode,
     saved_at: new Date().toISOString(),
     currentCriterionIdx: SESSION.currentCriterionIdx,
-    states: SESSION.states,
+    states: states,
     rater_name: getRaterName(),
   };
 }
@@ -1071,6 +1870,16 @@ function validateRemoteState(state) {
   if (state === null || typeof state !== "object" || Array.isArray(state)) {
     return { valid: false, reason: "state is not a plain object" };
   }
+  // Engine + mode tags: required. `engine` pins us to the v2 Bayesian shape;
+  // payloads from the legacy Elo engine are rejected at this gate (along with
+  // the STORAGE_KEY bump from v1→v2, this means stale local sessions hit the
+  // "Start fresh" path).
+  if (state.engine !== "davidson_laplace_v1") {
+    return { valid: false, reason: "engine missing or not davidson_laplace_v1" };
+  }
+  if (typeof state.mode !== "string" || !VALID_MODES.has(state.mode)) {
+    return { valid: false, reason: "mode missing or not in {quick, full}" };
+  }
   if (state.rater_name !== undefined && state.rater_name !== null) {
     if (typeof state.rater_name !== "string") {
       return { valid: false, reason: "rater_name is not a string" };
@@ -1099,27 +1908,25 @@ function validateRemoteState(state) {
     if (cs === null || typeof cs !== "object" || Array.isArray(cs)) {
       return { valid: false, reason: `states['${k}'] is not a plain object` };
     }
-    if (cs.theta === null || typeof cs.theta !== "object" || Array.isArray(cs.theta)) {
-      return { valid: false, reason: `states['${k}'].theta is not an object` };
+    // pids: array of canonical problem ids; must be a permutation of the
+    // current problem set so the engine's index-based theta_map vector lines up.
+    if (!Array.isArray(cs.pids)) {
+      return { valid: false, reason: `states['${k}'].pids is not an array` };
     }
-    // Completeness: every current problem id must be present (rejects truncated payloads).
-    for (const pid of SESSION.problemIds) {
-      if (!Object.prototype.hasOwnProperty.call(cs.theta, pid)) {
-        return { valid: false, reason: `states['${k}'].theta missing required problem id '${pid}'` };
-      }
+    if (cs.pids.length !== SESSION.problemIds.length) {
+      return { valid: false, reason: `states['${k}'].pids length mismatch (got ${cs.pids.length}, want ${SESSION.problemIds.length})` };
     }
-    for (const pid of Object.keys(cs.theta)) {
-      if (!problemSet.has(pid)) {
-        return { valid: false, reason: `states['${k}'].theta references unknown problem id '${pid}' (stale schema)` };
+    const seen = new Set();
+    for (const pid of cs.pids) {
+      if (typeof pid !== "string" || !problemSet.has(pid)) {
+        return { valid: false, reason: `states['${k}'].pids contains unknown id '${pid}'` };
       }
-      if (typeof cs.theta[pid] !== "number" || !Number.isFinite(cs.theta[pid])) {
-        return { valid: false, reason: `states['${k}'].theta['${pid}'] is not a finite number` };
-      }
+      if (seen.has(pid)) return { valid: false, reason: `states['${k}'].pids has duplicate '${pid}'` };
+      seen.add(pid);
     }
     if (cs.comparison_count === null || typeof cs.comparison_count !== "object" || Array.isArray(cs.comparison_count)) {
       return { valid: false, reason: `states['${k}'].comparison_count is not an object` };
     }
-    // Completeness: every current problem id must be present in comparison_count too.
     for (const pid of SESSION.problemIds) {
       if (!Object.prototype.hasOwnProperty.call(cs.comparison_count, pid)) {
         return { valid: false, reason: `states['${k}'].comparison_count missing required problem id '${pid}'` };
@@ -1153,8 +1960,6 @@ function validateRemoteState(state) {
       if (typeof h.outcome !== "string" || !VALID_OUTCOMES.has(h.outcome)) {
         return { valid: false, reason: `states['${k}'].history[${i}].outcome not in {a,b,tie} ('${h.outcome}')` };
       }
-      // left_id / right_id are NEW (added with L/R-randomization patch) — not required on
-      // older payloads. If present, they must be strings referencing known problem ids.
       if (h.left_id !== undefined && (typeof h.left_id !== "string" || !problemSet.has(h.left_id))) {
         return { valid: false, reason: `states['${k}'].history[${i}].left_id invalid or stale ('${h.left_id}')` };
       }
@@ -1162,8 +1967,21 @@ function validateRemoteState(state) {
         return { valid: false, reason: `states['${k}'].history[${i}].right_id invalid or stale ('${h.right_id}')` };
       }
     }
+    // stopped_reason: null or one of the known reasons (including the new
+    // Bayesian engine reasons). Unknown strings are rejected — refit_bt.py
+    // tolerates any string but the live UI should not trust foreign payloads.
+    const VALID_STOPPED = new Set([
+      null, "rank_stable_3cycles", "quick_soft_block_stable",
+      "block_stable_2cycles",  // legacy alias accepted for stale persisted payloads
+      "comparison_cap",
+      // legacy/in-progress
+      "in_progress", "ceiling_60", "3_stable_cycles"
+    ]);
     if (!(cs.stopped_reason === null || typeof cs.stopped_reason === "string")) {
       return { valid: false, reason: `states['${k}'].stopped_reason is neither null nor a string` };
+    }
+    if (cs.stopped_reason !== null && !VALID_STOPPED.has(cs.stopped_reason)) {
+      return { valid: false, reason: `states['${k}'].stopped_reason has unknown value '${cs.stopped_reason}'` };
     }
     if (cs.done !== undefined && typeof cs.done !== "boolean") {
       return { valid: false, reason: `states['${k}'].done is present but not a boolean` };
@@ -1180,9 +1998,21 @@ function validateRemoteState(state) {
   const fail = (label, got) => console.error(`[validateRemoteState FAIL] ${label}:`, got);
 
   // Build a synthetic VALID persistence payload modelled on buildSessionPayload output.
+  // Mirrors the v2 shape (engine + mode tags, pids array, no top-level theta).
   function buildValidPayload() {
     const states = {};
-    SESSION.criterionOrder.forEach(k => { states[k] = newCriterionState(SESSION.problemIds); });
+    SESSION.criterionOrder.forEach(k => {
+      const s = newCriterionState(SESSION.problemIds);
+      states[k] = {
+        pids: s.pids,
+        comparison_count: s.comparison_count,
+        history: s.history,
+        rank_snapshot_history: s.rank_snapshot_history,
+        quick_block_history: s.quick_block_history,
+        stopped_reason: s.stopped_reason,
+        done: s.done,
+      };
+    });
     if (SESSION.problemIds.length >= 2) {
       const [p0, p1] = SESSION.problemIds;
       states[SESSION.criterionOrder[0]].history.push({
@@ -1193,6 +2023,8 @@ function validateRemoteState(state) {
       states[SESSION.criterionOrder[0]].comparison_count[p1]++;
     }
     return {
+      engine: "davidson_laplace_v1",
+      mode: "quick",
       saved_at: new Date().toISOString(),
       currentCriterionIdx: 0,
       states,
@@ -1267,12 +2099,12 @@ function validateRemoteState(state) {
   if (r10.valid) fail("missing criterion key accepted", r10);
   else log("Case 10 PASS — missing criterion key rejected:", r10.reason);
 
-  // Case 11: theta missing required pid (truncated payload) → expect valid:false.
+  // Case 11: pids truncated (length mismatch) → expect valid:false.
   const bad11 = buildValidPayload();
-  delete bad11.states[SESSION.criterionOrder[0]].theta[SESSION.problemIds[0]];
+  bad11.states[SESSION.criterionOrder[0]].pids = bad11.states[SESSION.criterionOrder[0]].pids.slice(0, -1);
   const r11 = validateRemoteState(bad11);
-  if (r11.valid) fail("theta missing required pid accepted", r11);
-  else log("Case 11 PASS — incomplete theta rejected:", r11.reason);
+  if (r11.valid) fail("pids length mismatch accepted", r11);
+  else log("Case 11 PASS — incomplete pids rejected:", r11.reason);
 
   // Case 12: comparison_count missing required pid → expect valid:false.
   const bad12 = buildValidPayload();
@@ -1281,12 +2113,12 @@ function validateRemoteState(state) {
   if (r12.valid) fail("comparison_count missing required pid accepted", r12);
   else log("Case 12 PASS — incomplete comparison_count rejected:", r12.reason);
 
-  // Case 13: theta value not finite → expect valid:false.
+  // Case 13: missing engine tag (legacy v1 payload) → expect valid:false.
   const bad13 = buildValidPayload();
-  bad13.states[SESSION.criterionOrder[0]].theta[SESSION.problemIds[0]] = NaN;
+  delete bad13.engine;
   const r13 = validateRemoteState(bad13);
-  if (r13.valid) fail("non-finite theta accepted", r13);
-  else log("Case 13 PASS — non-finite theta rejected:", r13.reason);
+  if (r13.valid) fail("missing engine tag accepted", r13);
+  else log("Case 13 PASS — missing engine tag rejected:", r13.reason);
 
   // Case 14: bad outcome value → expect valid:false.
   const bad14 = buildValidPayload();
@@ -1344,14 +2176,41 @@ function hideSessionInfoBar() {
 
 // BOOT
 const RATER_NAME_KEY = "wst_rating_rater_name";
+const MODE_KEY = "wst_rating_mode";
 function getRaterName() { try { return localStorage.getItem(RATER_NAME_KEY) || ""; } catch (e) { return ""; } }
 function setRaterName(n) { try { localStorage.setItem(RATER_NAME_KEY, n); } catch (e) {} }
+function getStoredMode() {
+  try { const m = localStorage.getItem(MODE_KEY); return VALID_MODES.has(m) ? m : null; }
+  catch (e) { return null; }
+}
+function setStoredMode(m) { try { localStorage.setItem(MODE_KEY, m); } catch (e) {} }
+
+function refreshModePill() {
+  // Mode pill is intentionally hidden — Quick mode was removed; Full is the
+  // only mode. Keep the function as a no-op so existing call sites compile.
+  const pill = document.getElementById("mode-pill");
+  if (!pill) return;
+  pill.style.display = "none";
+}
+
+function bindModeSelector() {
+  // No-op: the welcome-screen mode-choice block was removed. SESSION.mode is
+  // hardcoded to "full" at session-construction time.
+  SESSION.mode = "full";
+}
 
 function startNewSession() {
   if (!getSessionCode()) setSessionCode(generateSessionCode());
+  setStoredMode(SESSION.mode);
+  // Initial refit per criterion so the engine has a valid θ_map / Σ before the
+  // first pickNextPair call (otherwise pickNextPair returns smallest-Δ on
+  // all-zero θ, which is fine, but the topbar / rank-stable snapshots want a
+  // real fit baseline).
+  SESSION.criterionOrder.forEach(k => { refitBayesian(SESSION.states[k]); });
   $("#name-prompt").style.display = "none";
   $("#resume-prompt").style.display = "none";
   $("#rating-view").style.display = "block";
+  refreshModePill();
   showSessionInfoBar();
   advanceComparison();
 }
@@ -1382,10 +2241,10 @@ async function attemptResumeFromCode() {
   }
   setRaterName(remote.rater_name || "anonymous");
   setSessionCode(code);
-  Object.keys(remote.states).forEach(k => { SESSION.states[k] = remote.states[k]; });
-  SESSION.currentCriterionIdx = remote.currentCriterionIdx || 0;
+  hydrateFromPayload(remote);
   saveToLocalStorage();
   $("#name-prompt").style.display = "none";
+  refreshModePill();
   if (SESSION.currentCriterionIdx >= SESSION.criterionOrder.length) {
     showSummary();
   } else {
@@ -1395,7 +2254,41 @@ async function attemptResumeFromCode() {
   }
 }
 
+function hydrateFromPayload(payload) {
+  // Re-attach a fresh per-criterion state shell, then copy persisted fields onto
+  // it (we drop the `fit` snapshot in saveToLocalStorage; refit reconstructs it).
+  // Quick mode was removed. Force any persisted payload to "full".
+  SESSION.mode = "full";
+  setStoredMode("full");
+  SESSION.currentCriterionIdx = payload.currentCriterionIdx || 0;
+  for (const k of SESSION.criterionOrder) {
+    const fresh = newCriterionState(SESSION.problemIds);
+    const src = (payload.states || {})[k] || {};
+    fresh.comparison_count = src.comparison_count || fresh.comparison_count;
+    fresh.history = Array.isArray(src.history) ? src.history : [];
+    fresh.rank_snapshot_history = Array.isArray(src.rank_snapshot_history) ? src.rank_snapshot_history : [];
+    fresh.quick_block_history = Array.isArray(src.quick_block_history) ? src.quick_block_history : [];
+    fresh.stopped_reason = (typeof src.stopped_reason === "string" || src.stopped_reason === null) ? src.stopped_reason : null;
+    fresh.done = !!src.done;
+    SESSION.states[k] = fresh;
+    refitBayesian(fresh);
+    // Refresh the Quick-mode block snapshot so updateModeStatus has data.
+    const bs = quickComputeBlockState(fresh);
+    if (bs) {
+      fresh.quick_block_assignments = bs.assign;
+      fresh.quick_p_in_block = bs.modalMass;
+      fresh.quick_runner_up = bs.runnerUpMass;
+      fresh.quick_soft_stable = bs.softStable;
+    }
+  }
+}
+
 function boot() {
+  // Mode is permanently "full" — Quick was rolled back. Ignore any stale
+  // "quick" persisted in localStorage from previous builds.
+  SESSION.mode = "full";
+  setStoredMode("full");
+
   const prev = loadFromLocalStorage();
   const prevValid = prev
     && prev.states
@@ -1409,6 +2302,7 @@ function boot() {
     $("#rating-view").style.display = "none";
     hideSessionInfoBar();
     $("#name-prompt").style.display = "block";
+    bindModeSelector();
     // Pre-fill code from URL ?code=... if provided
     const urlCode = new URLSearchParams(location.search).get("code");
     if (urlCode) $("#resume-code-input").value = urlCode.toUpperCase();
@@ -1459,10 +2353,10 @@ function boot() {
     const codeNote = getSessionCode() ? ` (Code: ${getSessionCode()})` : "";
     $("#resume-info").textContent = `Found a session saved at ${prev.saved_at}${codeNote}. Resume where you left off?`;
     $("#resume-yes").addEventListener("click", () => {
-      SESSION.currentCriterionIdx = prev.currentCriterionIdx;
-      Object.keys(prev.states).forEach(k => { SESSION.states[k] = prev.states[k]; });
+      hydrateFromPayload(prev);
       $("#resume-prompt").style.display = "none";
       $("#rating-view").style.display = "block";
+      refreshModePill();
       showSessionInfoBar();
       advanceComparison();
     }, { once: true });
@@ -1482,7 +2376,10 @@ function boot() {
   // Has rater name but no progress yet → continue
   if (prev) clearLocalStorage();
   if (!getSessionCode()) setSessionCode(generateSessionCode());
+  // Refit each criterion so subsequent advanceComparison has a baseline.
+  SESSION.criterionOrder.forEach(k => { refitBayesian(SESSION.states[k]); });
   $("#rating-view").style.display = "block";
+  refreshModePill();
   showSessionInfoBar();
   advanceComparison();
 }
@@ -1497,14 +2394,24 @@ function buildResultsJSON(timestamp) {
   const out = {
     session_id: ts,
     rater: getRaterName() || "anonymous",
+    engine: "davidson_laplace_v1",
+    mode: SESSION.mode,
     complete: SESSION.criterionOrder.every(k => SESSION.states[k].stopped_reason),
     criteria: {}
   };
   SESSION.criterionOrder.forEach(k => {
     const state = SESSION.states[k];
     const ranks = finalRanksWithTies(state);
+    // scores: BAYESIAN MAP (θ_map), keyed by problem id. Empty if the engine
+    // hasn't fit yet (zero comparisons).
+    const scores = {};
+    if (state.fit && state.fit.theta_map) {
+      state.pids.forEach((pid, i) => { scores[pid] = state.fit.theta_map[i]; });
+    } else {
+      state.pids.forEach(pid => { scores[pid] = 0; });
+    }
     out.criteria[k] = {
-      scores: state.theta,
+      scores: scores,
       ranks: Object.fromEntries(ranks.map(r => [r.id, r.rank])),
       comparisons: state.history,
       n_comparisons: state.history.length,
