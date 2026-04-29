@@ -1,0 +1,1591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>WST Rating Game — Targeted Top-up</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: #f5f5f5;
+  color: #222;
+}
+#topbar {
+  position: sticky; top: 0;
+  background: #fff;
+  border-bottom: 1px solid #ddd;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 10;
+}
+.pill {
+  padding: 6px 12px;
+  border-radius: 16px;
+  border: 1px solid #ccc;
+  font-size: 13px;
+  font-weight: 600;
+  color: #888;
+  background: #f8f8f8;
+}
+.pill.active { background: #2c5aa0; color: #fff; border-color: #2c5aa0; }
+.pill .progress { font-family: monospace; margin-left: 6px; letter-spacing: 1px; }
+#counter { margin-left: auto; font-size: 13px; color: #666; }
+#pause-btn {
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#mode-banner {
+  background: #fff8dc; border-bottom: 1px solid #e0d090;
+  padding: 8px 24px; font-size: 13px; color: #6b5b1a;
+  text-align: center; font-weight: 600;
+}
+#question {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 600;
+  padding: 24px;
+  color: #2c5aa0;
+}
+#cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 0 24px 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+.card h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  color: #2c5aa0;
+}
+.card .definition {
+  font-size: 14px;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+.card .crit-help {
+  background: #f0f6ff;
+  border-left: 3px solid #2c5aa0;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-style: italic;
+  margin-bottom: 16px;
+  line-height: 1.4;
+}
+.card .quote {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  border-left: 4px solid #ccc;
+}
+.card .quote.telegram { background: #fff5ec; border-left-color: #e07b25; }
+.card .quote.news { background: #eef3ff; border-left-color: #2c5aa0; }
+.card .quote .meta {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.card .quote .translation {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #ccc;
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+}
+.card .quote .translation::before { content: "EN — "; font-weight: 600; color: #888; font-style: normal; }
+.card .pick-btn {
+  margin-top: auto;
+  padding: 14px;
+  background: #2c5aa0;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.card .pick-btn:hover { background: #224a85; }
+#choice-row {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 24px 32px;
+}
+#tie-btn, #back-btn {
+  padding: 12px 24px;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+#tie-btn { background: #888; }
+#tie-btn:hover { background: #666; }
+#back-btn { background: #b85; }
+#back-btn:hover { background: #a64; }
+#back-btn:disabled { background: #ddd; color: #999; cursor: not-allowed; }
+#kbd-hint { text-align: center; color: #888; font-size: 12px; padding-bottom: 16px; }
+.placeholder-news {
+  font-style: italic;
+  color: #999;
+  background: #fafafa !important;
+  border-left-color: #ccc !important;
+}
+#summary, #resume-prompt, #name-prompt {
+  display: none;
+  padding: 32px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+#name-prompt .welcome-section { margin: 24px 0; }
+#name-prompt .welcome-section h3 { margin: 0 0 8px; font-size: 16px; color: #333; }
+#name-prompt .welcome-section p { font-size: 14px; color: #555; margin: 0 0 12px; }
+#name-prompt .welcome-section input[type=text] {
+  padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px;
+  width: 240px; margin-right: 8px; vertical-align: middle;
+}
+#name-prompt #resume-code-input { text-transform: uppercase; letter-spacing: 2px; font-family: monospace; }
+#name-prompt .welcome-resume { padding-top: 24px; border-top: 1px solid #ddd; }
+#name-prompt #resume-code-msg { margin-top: 12px; font-size: 13px; color: #c00; min-height: 18px; }
+#session-info-bar {
+  background: #f0f6ff; padding: 8px 24px; font-size: 13px; color: #555;
+  border-bottom: 1px solid #cfd9f0; display: none;
+}
+#session-info-bar code {
+  font-weight: bold; font-size: 14px; color: #2c5aa0; letter-spacing: 1px;
+  padding: 2px 6px; background: #fff; border: 1px solid #cfd9f0; border-radius: 3px;
+}
+#session-info-bar button {
+  margin-left: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  border: 1px solid #ccc; background: #fff; border-radius: 3px;
+}
+#session-info-bar button:hover { background: #f0f0f0; }
+#rating-view { display: none; }
+.action-btn {
+  padding: 12px 24px;
+  background: #2c5aa0;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  margin-right: 12px;
+}
+.action-btn.secondary { background: #888; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="pill" data-criterion="observability">Observability <span class="progress"></span></div>
+  <div class="pill" data-criterion="solvability">Solvability <span class="progress"></span></div>
+  <div class="pill" data-criterion="donor_pressure">Donor pressure <span class="progress"></span></div>
+  <div id="counter"></div>
+  <button type="button" id="pause-btn">Pause</button>
+</div>
+<div id="mode-banner" style="display:none;">
+  Targeted top-up mode — sequential walk through pre-selected high-information pairs. No BT picker, no live theta.
+</div>
+<div id="session-info-bar">
+  Your session code: <code id="session-code-display">—</code>
+  <button type="button" id="copy-code-btn">Copy</button>
+  <span style="margin-left: 16px; color: #888;">Save this code to resume on another device.</span>
+</div>
+
+<div id="rating-view">
+  <div id="question"></div>
+  <div id="cards"></div>
+  <div id="choice-row">
+    <button type="button" id="back-btn" disabled>← Back (undo)</button>
+    <button type="button" id="tie-btn">TIE / Equal</button>
+  </div>
+  <div id="kbd-hint">Keyboard: ← (left) &nbsp;|&nbsp; = (tie) &nbsp;|&nbsp; → (right) &nbsp;|&nbsp; Backspace (undo)</div>
+</div>
+
+<div id="name-prompt">
+  <h2>WST rating game — targeted top-up</h2>
+  <p>You'll re-rate a small list of pairs that were flagged as the most uncertain in your previous session. The whole task takes about 10–20 minutes. Your progress autosaves every comparison — you can pause and reopen anytime, including from a different device.</p>
+
+  <div class="welcome-section">
+    <h3>Start the top-up</h3>
+    <p>Your name or initials (used to label your downloaded results file):</p>
+    <input type="text" id="rater-name-input" placeholder="e.g. PaulD" />
+    <button type="button" class="action-btn" id="rater-name-submit">Start rating →</button>
+  </div>
+
+  <div class="welcome-section welcome-resume">
+    <h3>Or resume an existing top-up</h3>
+    <p>Paste your 6-character session code from a previous device:</p>
+    <input type="text" id="resume-code-input" placeholder="e.g. JX7K2P" maxlength="32" />
+    <button type="button" class="action-btn secondary" id="resume-code-submit">Resume →</button>
+    <div id="resume-code-msg"></div>
+  </div>
+</div>
+
+<div id="resume-prompt">
+  <h2>Resume previous top-up?</h2>
+  <p id="resume-info"></p>
+  <button type="button" class="action-btn" id="resume-yes">Resume</button>
+  <button type="button" class="action-btn secondary" id="resume-no">Start fresh</button>
+</div>
+
+<div id="summary">
+  <h2>Top-up complete — thank you!</h2>
+  <p>All pre-selected pairs have been rated. Please download the JSON and send it back so it can be unioned with your original ratings session.</p>
+  <p id="summary-counts"></p>
+  <button type="button" class="action-btn" id="dl-btn">Download results JSON</button>
+  <button type="button" class="action-btn secondary" id="restart-btn">Restart top-up (wipe localStorage)</button>
+</div>
+
+<script>
+// DATA injected by build_topup.py
+const DATA = {
+  "is_topup_mode": true,
+  "rater_default": "lutir",
+  "source_targeted_pairs_file": "targeted_pairs_v2.json",
+  "problems": [
+    {
+      "id": "equipment_malfunction",
+      "label": "Equipment malfunction",
+      "definition": "Drip lines, filters, pumps, sprinkler heads breaking, clogging, or failing.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_151707",
+        "text": "Bir tiyingga qimmat texnalogiya oddiy misol dalani urtasida shilyonkasi yorilsa u zakas qilib olib kelguncha 3 4 kun utadi ungacha paxta chatnab kuyib qoladi bu texnalogiya girt manapolyadan boshqa hech narsa emas",
+        "date": "2022-09-30",
+        "translation": "An overpriced technology is a simple example: if the drip tape on a field tears in the middle, it takes 3–4 days to order a replacement and have it delivered — by which time the cotton has already wilted and burned. This technology is nothing but pure monopoly."
+      },
+      "news_example": {
+        "id": "gov_161249",
+        "title": "Олий Мажлис Қонунчилик палатаси Мехнат ва ижтимоий масалалар қумитаси раиси Қорақалпоғистон Республикаси",
+        "text": "«Fozilbek Kamalovich» фермер хўжалиги рахбари Махмуд Сапаровнинг таъкидлашича, яроқлилик муддати 5 йилга дея мулжалланган томчилатиб суғориш технологияси фаолияти бир ойга ҳам бормади. Фермер ҳозирданоқ емаган сомсага пул тўламокда.\nЯъни банк барбод бўлган лойиха учун олинган кредитни ундирмокда. Устига устак, кластер олдидаги мажбурияти ҳам бор, ўтган йили ерида сув бўлмагандан кейин қосил қам нобуд бўлди, бунинг оқибатида қарийб 120 миллион сўмлик зарар кўрди ойи охирида тўлиқ тугалланиши шарт бўлган иш салкам бир ой, аникроғи, 27 июлга қадар чўзилиб кетганидан сўнг тинчи бузилади. 20 гектар ер майдонининг факат 10 гектарига томизгичли қувурлар тортилиб, қолган 10 гектар қисми эса киста-киста билан базўр август бошларида бажарилади Аммо тизим барбод бўлгани учун буюртмачи ва пудратчи ўртасида ишнинг бажарилгани тўғрисида ҳеч қандай хужжат имзоланмайди.",
+        "date": "2022-06-13",
+        "source": "gov_news",
+        "translation": "According to Mahmud Saparov, head of the 'Fozilbek Kamalovich' farm, the drip irrigation technology — which was supposed to last 5 years — did not even function for a full month. The farmer is now paying for a meal he never ate: the bank is collecting on a loan taken out for a project that has already failed. On top of that, he still has obligations to the cluster. Last year, due to lack of water, the harvest was also destroyed, resulting in losses of nearly 120 million soums. Work that was supposed to be fully completed by month's end dragged on for almost a month — specifically until July 27 — before coming to a halt. Drip pipes were laid on only 10 of the 20 hectares, with the remaining 10 hectares barely finished in bits and pieces by early August. But because the system completely failed, no document confirming completion of work was ever signed between the client and the contractor.",
+        "title_translation": "Chairman of the Labor and Social Affairs Committee of the Legislative Chamber of the Oliy Majlis, Republic of Karakalpakstan"
+      }
+    },
+    {
+      "id": "installation_problems",
+      "label": "Installation problems",
+      "definition": "Poor installation quality, incorrect setup, or contractor errors.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_54331",
+        "text": "2021 yilda paxtaga tomchilab suģorish tizimini òrnatdik quruvchi bilan bir gektariga 25 mln.dan kelishildi. Yakuniy xisob kitobda suv xavzasini, nasos va bochkalar tagiga quyilgan beton qorishmasini, elektr qismlarini alohida xisob kitob qilishdi. Sizlarda ham shunaqami. \nQuruvchi tashkilot nomi: \"FERGANA STROY SERVIS\"\nFermer xòjalik Farģona viloyati Furqat tumanida joylashgan",
+        "date": "2022-02-01",
+        "translation": "In 2021 we installed a drip irrigation system for cotton — we agreed with the contractor on 25 million soums per hectare. But in the final settlement, they billed separately for the water reservoir, the concrete foundation under the pump and tanks, and the electrical components. Is it the same for you? Contractor name: 'FERGANA STROY SERVIS'. Farm is located in Furqat district, Fergana region."
+      },
+      "news_example": {
+        "id": "gov_161246",
+        "title": "Масаланинг ечими иш берувчига боглик",
+        "text": "CHORDIST WHOOLED HAVE «Ishonch» газетасининг шу йил 23 апрелдаги сонида чоп этилган «Масала қачон ечим топади?» сарлавҳали мақолада архив тизими хо- Беруний туманида фаолият юритаётган «Fozilbek Kamalovich» фермер хўжалиги 20 гектар пахта майдонига томчилатиб суғориш технологиясини жорий қилиш ортидан жиддий йўқотишлару муаммоларга учради. Қарийб ярим миллиард сўмлик давлат субсидияси хамда имтиёзли кредитлар хисобига харид қилинган лойиҳа бир ойга бормасдан барбод булди. Фермер эса пахта етказиб бериш бүйича кластер билан тузилган шартномасини бажара олмай, инқирозга юз тутди.\nқувур бор, иккинчисида йўқ, учинчисида яна мавжуд. Яъни, ўртада битта ариқ бўш қолиб кетяпти. Демак, у ариқда экилган пахталар сув ичмаслиги керакми, унда қандай қосил беради? Аммо, аввал таъкидланганидек тизим умуман ишдан чиққан эди. Бу вақтга (2021 йилнинг сентябрь ойи)\nкелиб, сугориш муддатлари аллакачон ўтиб бўлган, гўза майдонига сув бериш кечиккани оқибатида қосилдорлик қам камайиб кетган эди.",
+        "date": "2022-06-13",
+        "source": "gov_news",
+        "translation": "[OCR noise ignored] An article published in the 'Ishonch' newspaper on April 23 of this year, titled 'When Will the Problem Be Solved?', reported that the 'Fozilbek Kamalovich' farm operating in Beruniy district suffered serious losses and problems after introducing drip irrigation technology on 20 hectares of cotton. A project purchased with nearly half a billion soums in state subsidies and preferential loans failed in under a month. The farmer was unable to fulfill his contract with the cluster for cotton delivery and faced financial collapse. In one row there was a pipe, in the next row there was none, and in the third there was one again — meaning an entire irrigation furrow was left without water. How could the cotton planted there produce any yield? But as noted earlier, the system had completely broken down. By the time September 2021 arrived, the irrigation windows had already passed, and the delay in watering the cotton fields had reduced yields as well.",
+        "title_translation": "The solution to the problem depends on the employer"
+      }
+    },
+    {
+      "id": "high_cost",
+      "label": "High cost / loan burden",
+      "definition": "Farmers unable to afford WST equipment, installation, maintenance, or loan burden.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_5403",
+        "text": "Ассалому алекум хурматли фермерлар ва хукукшуностлар бизнинг фермер хужалигимиз 2021 йилда 22 гектар майдонга томчилатиб сугориш килди 506мил.га шартнома килган пайтда уша суммани 3 йилга кредит килиб берамиз деган эди лекин агробанк кредит бера олмади кандайдир банкнинг узини муаммолар туфайли.энди булса йил охирига келиб 506 миллион 528 миллиона айланди ва жаноб кластер уша суммани хаммасини 2021 пахта пулдан ушлаб колмокчи.ушбу вазият канчалик тугри маслахат ва ёрдам керак илтимос.",
+        "date": "2021-12-08",
+        "translation": "Hello, dear farmers and legal professionals. Our farm installed drip irrigation on 22 hectares in 2021 — we signed a contract for 506 million soums, and at the time they promised to give us a 3-year credit for that amount. But Agrobank could not provide the credit due to some internal bank problems. Now, by the end of the year, the 506 million has grown to 528 million, and the cluster is planning to withhold the entire amount from our 2021 cotton payment. Is this situation legal? We need advice and help, please."
+      },
+      "news_example": {
+        "id": "gov_56724",
+        "title": "Пять вместо трех",
+        "text": "тысячи гектаров — другие виды орошения.\nВозвращена в оборот 51 тысяча гектаров орошаемых земель. Ежегодно за счет эффективного управления водными ресурсами, внедрения водосберегающих и цифровых технологий, реализации ирригационных мероприятий, лазерной планировки земель, своевременного проведения агротехнических мероприятий достигается экономия в среднем 7 миллиардов кубометров водных ресурсов.\nВ ходе «правительственного часа» депутаты акцентировали внимание на некоторых проблемах. Использование водосберегающих технологий в основном определяется как обязательство. На самом деле их применение дает очевидные преимущества для фермеров, в том числе финансовые. На встречах депутатов с избирателями большинство фермеров и землевладельцев отмечает высокую стоимость этих технологий и отсутствие каких-либо льгот. Исходя из этого депутаты интересовались наличием стратегии по установке и внедрению этих технологий.\nМинистр водного хозяйства отметил, что это проблемный вопрос, его реализация осуществляется систем- Члены Комитета верхней палаты по вопросам женщин и гендерного равенства рассмотрели Закон «О внесении изменений и дополнения в некоторые законодательные акты Республики Узбекистан».\nДействующим законодательством установлено, что без образования юридического лица субъекты семейного предпринимательства вправе нанять до трех постоянных работников и заключить с ними трудовой договор. Это создает проблемы для уве-",
+        "date": "2023-12-29",
+        "source": "gov_news",
+        "translation": "Thousands of hectares use other types of irrigation. 51,000 hectares of irrigated land have been returned to agricultural use. Each year, through effective water resource management, the introduction of water-saving and digital technologies, irrigation improvements, laser land leveling, and timely agrotechnical measures, an average of 7 billion cubic meters of water is saved. During a parliamentary session, deputies highlighted several problems. The use of water-saving technologies is largely treated as an obligation imposed on farmers. In reality, applying these technologies offers clear advantages, including financial ones. At meetings with voters, most farmers and landowners point to the high cost of these technologies and the absence of any benefits or incentives. Deputies asked whether there is a strategy for installing and rolling out these technologies. The Minister of Water Resources acknowledged this as a problematic issue and said implementation is being carried out systematically. [The article continues with an unrelated section about amendments to family entrepreneurship legislation.]",
+        "title_translation": "Five instead of three"
+      }
+    },
+    {
+      "id": "subsidy_delay_or_nonpayment",
+      "label": "Subsidy delay / nonpayment",
+      "definition": "Government-promised subsidies for WST installation, electricity, or operations are delayed indefinitely, denied without clear reason, or never disbursed — despite farmers having completed installation and submitted required documentation.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_11284",
+        "text": "Assalomu allekum Ozbekiston fermerlari charchamayapsilarmi men  Andijon viloyati Qorgontepa tumanda Mominjonov Faroxidin fermer hojaligida paxta galla yonalishida faolyat yuritamiz bizga 2021 yil 17'  2 gektar pahta maydoniga tomchilatish tehnalogiyasi ornatildi Subsida tushti  kiriditga shartnoma qillayotkanda subsida beriladi kiriditi 10 foizini tadbirkorlar pallatasidan tushiriladi degandi shu 10 foiz tushmayapti kiridit 21 foiz kimga murojat qilamiz",
+        "date": "2021-12-17",
+        "translation": "Hello, aren't you Uzbek farmers getting tired? I'm Farokhiddin Mominjonov, operating a cotton and grain farm in Qo'rg'ontepa district, Andijan region. In 2021, drip irrigation technology was installed on 17.2 hectares of our cotton field. The subsidy came in, and when we were signing the loan agreement we were told that the subsidy would be applied and the 10% interest rate would be reduced by the Business Chamber. That 10% reduction has not come through — the loan interest is still at 21%. Who do we turn to?"
+      },
+      "news_example": {
+        "id": "gov_161246",
+        "title": "Масаланинг ечими иш берувчига боглик",
+        "text": "CHORDIST WHOOLED HAVE «Ishonch» газетасининг шу йил 23 апрелдаги сонида чоп этилган «Масала қачон ечим топади?» сарлавҳали мақолада архив тизими хо- Беруний туманида фаолият юритаётган «Fozilbek Kamalovich» фермер хўжалиги 20 гектар пахта майдонига томчилатиб суғориш технологиясини жорий қилиш ортидан жиддий йўқотишлару муаммоларга учради. Қарийб ярим миллиард сўмлик давлат субсидияси хамда имтиёзли кредитлар хисобига харид қилинган лойиҳа бир ойга бормасдан барбод булди. Фермер эса пахта етказиб бериш бүйича кластер билан тузилган шартномасини бажара олмай, инқирозга юз тутди.\nқувур бор, иккинчисида йўқ, учинчисида яна мавжуд. Яъни, ўртада битта ариқ бўш қолиб кетяпти. Демак, у ариқда экилган пахталар сув ичмаслиги керакми, унда қандай қосил беради? Аммо, аввал таъкидланганидек тизим умуман ишдан чиққан эди. Бу вақтга (2021 йилнинг сентябрь ойи)\nкелиб, сугориш муддатлари аллакачон ўтиб бўлган, гўза майдонига сув бериш кечиккани оқибатида қосилдорлик қам камайиб кетган эди.",
+        "date": "2022-06-13",
+        "source": "gov_news",
+        "translation": "[OCR noise ignored] An article published in the 'Ishonch' newspaper on April 23 of this year, titled 'When Will the Problem Be Solved?', reported that the 'Fozilbek Kamalovich' farm operating in Beruniy district suffered serious losses and problems after introducing drip irrigation technology on 20 hectares of cotton. A project purchased with nearly half a billion soums in state subsidies and preferential loans failed in under a month. The farmer was unable to fulfill his contract with the cluster for cotton delivery and faced financial collapse. In one row there was a pipe, in the next row there was none, and in the third there was one again — meaning an entire irrigation furrow was left without water. How could the cotton planted there produce any yield? But as noted earlier, the system had completely broken down. By the time September 2021 arrived, the irrigation windows had already passed, and the delay in watering the cotton fields had reduced yields as well.",
+        "title_translation": "The solution to the problem depends on the employer"
+      }
+    },
+    {
+      "id": "contractor_fraud",
+      "label": "Contractor fraud",
+      "definition": "Contractors or installation firms take payment for WST equipment/installation but abandon the project, deliver incomplete work, disappear, or misappropriate funds — leaving farmers with non-functional systems and unpaid loans.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_25827",
+        "text": "Масалан мен 262 500 000сум томчилатиб сугоришга олиб отилиб колдим хеч кандай иш килиб бермади шу кунгача 2021йил пахта учун килиниши кере эди 44 000 000сум %туладим 53 000 000сум тани турибди пахтани пули тушса олади банк жами 97 000 000сум булади",
+        "date": "2022-01-01",
+        "translation": "For example, I was stuck paying 262,500,000 soums for drip irrigation — the contractor did not do any of the work to this day, even though it was supposed to be done for 2021 cotton. I paid 44,000,000 soums in interest, 53,000,000 soums in principal is still outstanding, and the bank will take it when the cotton payment comes in. In total it comes to 97,000,000 soums."
+      },
+      "news_example": {
+        "id": "gov_161249",
+        "title": "Олий Мажлис Қонунчилик палатаси Мехнат ва ижтимоий масалалар қумитаси раиси Қорақалпоғистон Республикаси",
+        "text": "«Fozilbek Kamalovich» фермер хўжалиги рахбари Махмуд Сапаровнинг таъкидлашича, яроқлилик муддати 5 йилга дея мулжалланган томчилатиб суғориш технологияси фаолияти бир ойга ҳам бормади. Фермер ҳозирданоқ емаган сомсага пул тўламокда.\nЯъни банк барбод бўлган лойиха учун олинган кредитни ундирмокда. Устига устак, кластер олдидаги мажбурияти ҳам бор, ўтган йили ерида сув бўлмагандан кейин қосил қам нобуд бўлди, бунинг оқибатида қарийб 120 миллион сўмлик зарар кўрди ойи охирида тўлиқ тугалланиши шарт бўлган иш салкам бир ой, аникроғи, 27 июлга қадар чўзилиб кетганидан сўнг тинчи бузилади. 20 гектар ер майдонининг факат 10 гектарига томизгичли қувурлар тортилиб, қолган 10 гектар қисми эса киста-киста билан базўр август бошларида бажарилади Аммо тизим барбод бўлгани учун буюртмачи ва пудратчи ўртасида ишнинг бажарилгани тўғрисида ҳеч қандай хужжат имзоланмайди.",
+        "date": "2022-06-13",
+        "source": "gov_news",
+        "translation": "According to Mahmud Saparov, head of the 'Fozilbek Kamalovich' farm, the drip irrigation technology — which was supposed to last 5 years — did not even function for a full month. The farmer is now paying for a meal he never ate: the bank is collecting on a loan taken out for a project that has already failed. On top of that, he still has obligations to the cluster. Last year, due to lack of water, the harvest was also destroyed, resulting in losses of nearly 120 million soums. Work that was supposed to be fully completed by month's end dragged on for almost a month — specifically until July 27 — before coming to a halt. Drip pipes were laid on only 10 of the 20 hectares, with the remaining 10 hectares barely finished in bits and pieces by early August. But because the system completely failed, no document confirming completion of work was ever signed between the client and the contractor.",
+        "title_translation": "Chairman of the Labor and Social Affairs Committee of the Legislative Chamber of the Oliy Majlis, Republic of Karakalpakstan"
+      }
+    },
+    {
+      "id": "electricity_supply_problems",
+      "label": "Electricity supply problems",
+      "definition": "Unreliable electricity supply — including frequent outages, disconnections due to debt, and limited power hours — prevents WST systems (pumps, drip irrigation) from operating as required, causing crop damage or system failure.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_393706",
+        "text": "Ассаломуалайкум хурматли Сув хужалиги Вазирлиги , Биз 2024 йил давомида пахта галла сугоришда Артизан кудук хамда томчилатиб сугориш оркали пахта даласини электр энергия ишлатиб сугорганмиз  , 2024 йил учун бир неча марта ариза .беришимизга карамасдан электр энергия тулови учун субсидия ажратилмай келмокда  . Хозирги кунда кариздорлигимиз туфайли 2 дона трансфарматони тармокдан узиб ташланган . Энди нима килсак булади",
+        "date": "2024-11-10",
+        "translation": "Hello, esteemed Ministry of Water Resources. Throughout 2024 we irrigated cotton and wheat using artesian wells and drip irrigation, consuming electricity. Despite filing applications multiple times for the 2024 electricity subsidy, none has been allocated. Right now, due to our debt, two of our transformers have been disconnected from the grid. What do we do now?"
+      },
+      "news_example": {
+        "id": "gov_23664",
+        "title": "Опоздали с капельным орошением",
+        "text": "В основном работа велась в Самаркандской и Сурхандарыинской областях. В Андижанской, Бухарской, Джизакской, Кашкадарыинской, Навоийской, Наманганской и других существенно отстают по срокам внедрения водосберегающих технологий полива. Данную ситуацию депутаты Законодательной палаты Олий Мажлиса подвергли резкой критике.\nПо этому вопросу Комитет по аграрным и водохозяйственным вопросам нижней палаты.\nпарламента заслущал информацию Министерства водного хозяйства и других ответственных министерств и ведомств В стране реализуются меры по широкому внедрению современных инновационных водосберегающих технологий. Депутаты заострили внимание на имеющихся проблемах, связанных с использованием капельного орошения при выращивании хлопчатника, а также необходимости совершенствования законодательства.\nМинистерство сельского хозяйства, Министерство сельского хозяйства Республики Каракалпакстан и областные управления сельского хозяйства, являясь исполнительными органами рабочих групп по содействию внедрению водосберегающих технологий полива, в неполном объеме выполнили возложенные на них задачи. Как результат, производителям нынешнем году в стране строительство систем капельного орошения было заверше В нывешнем году в стране строительство замель из запланированного 12 121 гектара.\nхлопка-сырца в Нишанском, Гузарском районах Кашкадарынской области, Чустском районе Наманганской области с опозданием были выделены субсидии из Государственного бюджета на внедрение технологий капельного орошения на каждом гектаре посевной площади хлопка-сырца Кроме того, наблюдаются перебои в пода че электричества на поля, без которого система капельного орошения не будет нормально работать. Эта проблема актуальна для Каракалпакстана, Кашкадарыинской, Самеркандской, Сырдарынской и Джизакской областей Депутаты высказали предложения о необходимости разработки научно обоснованных агротехнических правил внедрения водосберегающих поливных технологий с учетом почвенно-климатических и других условий регионов. Это позволит достичь высокой урожайности и рационального использования водных ресурсов. Важно подумать и о том, как будет проводиться сервисное обслуживание систем капельного орошения По итогам мероприятия принято соответствующее решение комитета.\nСауле АЗИМБЕТОВА, «Народное слово».\nПо сравнению с гидроэнергетикой в Уэбекистане более высок потенциал использования солнечной энергии, особенно для энергоснабжения отдельно стоящих объектов или удаленных, труднодоступных населенных пунктов, к которым накладно прокладывать линии электропередани. При решении подобных вопросов может пригодиться продукция компании «SEC Baltic» из Литвы, коммерческий директор которой Юрга Мартинайтите рассчитывает в ходе в ставки найти партнеров в Узбекистане Многие вопросы, касающиеся возобновляемых и экологически чистых источников энергии намечено рассмотреть в ходе Наряду с этим участники форума обсудят роль атомной энергетики в социально-экономичес ком развитии страны, пути развития государственно-частного партнерства в области энергемеры по повышению энергоэффективности и привлечению инвестиций в отрасль и другие вопросы В эти дни Ташкент стал не талько местом демонстрации но вых решений, технологий, оборудования для топливно-энергетического комплекса, но и хорошей площадкой для общения отечественных специалистов с профессионалами из других стран, обсуждения актуальных вопросов дальнейшего развития ключевых отраслей экономики, встреч в формате B2G и В2В руководителей компаний и подразделений Министерства энергетики. АО «Узбекнефте газ», агентства «Узатом» с глава ми зарубежных делегаций и компаний. Это во многом должно помочь в решении тех важных задач, которые поставило перед отечественным ТЭК руководство рес публики.\nСергей ЛИ, «Народное слово",
+        "date": "2019-08-05",
+        "source": "gov_news",
+        "translation": "Work was carried out mainly in Samarkand and Surkhandarya regions. In Andijan, Bukhara, Jizzakh, Kashkadarya, Navoiy, Namangan, and other regions, implementation of water-saving irrigation technologies is significantly behind schedule. Deputies of the Legislative Chamber of the Oliy Majlis criticized this situation sharply. The Committee on Agrarian and Water Management Issues of the lower chamber of parliament heard information from the Ministry of Water Resources and other responsible ministries and agencies on the nationwide roll-out of modern innovative water-saving technologies. Deputies highlighted problems with the use of drip irrigation in cotton growing and the need to improve legislation. The Ministry of Agriculture, the Ministry of Agriculture of the Republic of Karakalpakstan, and regional agricultural departments — as executive bodies of the working groups for promoting water-saving irrigation technologies — did not fully fulfill the tasks assigned to them. As a result, out of a planned 12,121 hectares, drip irrigation construction was completed on only a portion this year. In addition, subsidies from the state budget for drip irrigation technology per hectare of cotton sown were issued late to cotton producers in Nishan and Guzar districts of Kashkadarya region, and in Chust district of Namangan region. Furthermore, there are interruptions in electricity supply to fields — without which drip irrigation systems cannot function properly. This problem is particularly acute in Karakalpakstan, Kashkadarya, Samarkand, Syrdarya, and Jizzakh regions. Deputies proposed developing scientifically grounded agrotechnical regulations for water-saving irrigation technologies tailored to the soil and climate conditions of each region, which would help achieve higher yields and rational water use. The question of how drip irrigation systems will be maintained and serviced also needs attention. A corresponding committee decision was adopted at the end of the event.",
+        "title_translation": "Late with drip irrigation"
+      }
+    },
+    {
+      "id": "water_source_unavailability",
+      "label": "Water source unavailability",
+      "definition": "Farmers install WST systems but lack a reliable or sufficient water source (canal water not reaching fields, seasonal water shortages, insufficient well capacity) to actually operate the technology, rendering the investment useless.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_15334",
+        "text": "Вазир уринбосари Ганиев хам шу томчилаб сугориш ни сув бор жойга жойлаштиришни такидлаган,лекин Бизда бориб Энг сув бормайдиган ерларга жойлаштиришади бундан фойда йук факат фермер куяди,буни сувни олдига куриш керак шунда сув оркага боради,Томчилаб сугориш ни фойдаси катта экан ишончли уз агрономи бор фирмага килдириш керак, кандайдир бизнесменга килдириб фермерни куйдириш буларни иши.",
+        "date": "2021-12-21",
+        "translation": "Deputy Minister Ganiev himself emphasized that drip irrigation should only be installed where there is water — but in our area, they go and install it in the most water-scarce locations, so it's useless. Only the farmer suffers. You need to build a water intake structure first, then the water will flow back through it. Drip irrigation really is beneficial — but it must be done by a firm that has reliable agronomists of its own. Having some businessman do it just to burn the farmer — that's all they're after."
+      },
+      "news_example": {
+        "id": "gov_161246",
+        "title": "Масаланинг ечими иш берувчига боглик",
+        "text": "CHORDIST WHOOLED HAVE «Ishonch» газетасининг шу йил 23 апрелдаги сонида чоп этилган «Масала қачон ечим топади?» сарлавҳали мақолада архив тизими хо- Беруний туманида фаолият юритаётган «Fozilbek Kamalovich» фермер хўжалиги 20 гектар пахта майдонига томчилатиб суғориш технологиясини жорий қилиш ортидан жиддий йўқотишлару муаммоларга учради. Қарийб ярим миллиард сўмлик давлат субсидияси хамда имтиёзли кредитлар хисобига харид қилинган лойиҳа бир ойга бормасдан барбод булди. Фермер эса пахта етказиб бериш бүйича кластер билан тузилган шартномасини бажара олмай, инқирозга юз тутди.\nқувур бор, иккинчисида йўқ, учинчисида яна мавжуд. Яъни, ўртада битта ариқ бўш қолиб кетяпти. Демак, у ариқда экилган пахталар сув ичмаслиги керакми, унда қандай қосил беради? Аммо, аввал таъкидланганидек тизим умуман ишдан чиққан эди. Бу вақтга (2021 йилнинг сентябрь ойи)\nкелиб, сугориш муддатлари аллакачон ўтиб бўлган, гўза майдонига сув бериш кечиккани оқибатида қосилдорлик қам камайиб кетган эди.",
+        "date": "2022-06-13",
+        "source": "gov_news",
+        "translation": "[OCR noise ignored] An article published in the 'Ishonch' newspaper on April 23 of this year, titled 'When Will the Problem Be Solved?', reported that the 'Fozilbek Kamalovich' farm operating in Beruniy district suffered serious losses and problems after introducing drip irrigation technology on 20 hectares of cotton. A project purchased with nearly half a billion soums in state subsidies and preferential loans failed in under a month. The farmer was unable to fulfill his contract with the cluster for cotton delivery and faced financial collapse. In one row there was a pipe, in the next row there was none, and in the third there was one again — meaning an entire irrigation furrow was left without water. How could the cotton planted there produce any yield? But as noted earlier, the system had completely broken down. By the time September 2021 arrived, the irrigation windows had already passed, and the delay in watering the cotton fields had reduced yields as well.",
+        "title_translation": "The solution to the problem depends on the employer"
+      }
+    },
+    {
+      "id": "water_schedule_mismatch",
+      "label": "Water schedule mismatch",
+      "definition": "Existing canal-based water delivery schedules (providing water every 7-15 days in large volumes) are incompatible with drip irrigation requirements (needing small frequent flows every 2-3 days), making WST systems impossible to operate as designed.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_326940",
+        "text": "Ака эсиздан чикмасин узи яхши техналогия лекин сувни хар 2-3 кунда сугормасез булмайди белгиланган соатида (мутахасих уста булса узи саотини кунини белгилаб беради еризи шароитдан келиб чикиб).Купчилик килмай туриб тушинмай булмайди дейди ,яна бошкаси килган лекин техналогияни бузиб килган еки унга ургатган мутахасих адашган.Ва асосийси сув доим эхтиежга яраша булиши керак.",
+        "date": "2024-02-25",
+        "translation": "Brother, don't forget — it's a good technology, but you must irrigate every 2–3 days at the prescribed hour (if the specialist is competent, they will set the day and time based on your field conditions). Many people say you can't understand it without trying it; others have installed it but broken the technology, or the specialist who trained them was wrong. The key thing is that water must always be available on demand."
+      },
+      "news_example": null
+    },
+    {
+      "id": "forced_adoption",
+      "label": "Forced adoption",
+      "definition": "Local officials, hokims, or prosecutors coerce farmers into signing WST contracts, taking loans for equipment, or working with designated firms — often under threat of land seizure, penalties, or administrative pressure — regardless of farmer readiness, land suitability, or financial capacity.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_431484",
+        "text": "Akalar sizlarni ham Hokimiyat selka olasan deb majburlayaptimi? Pul yoʻq lekin olasan deb turib olib prokuraturaga ertayu kech olib ketin olib kelishyapti buni qanday qilib oldini olish mumkin. Birinchi Oʻrdagini va setkasini tiqdi endi esa selkasini tiqyapti. Bu nima degan gap 🤦‍♂️",
+        "date": "2025-02-14",
+        "translation": "Brothers, is the hokimiyat also forcing you to buy a 'selka' (sprinkler)? No money, but they say 'you'll buy it' and drag you to the prosecutor's office morning and night — how can this be stopped? First they shoved hail-nets and mesh down our throats, now sprinklers. What is this supposed to mean 🤦‍♂️"
+      },
+      "news_example": {
+        "id": "gov_161251",
+        "title": "ёхуд берунийлик фермернинг додини ким эшитади?\nТЕЖАМКОР УСКУНАНИНГ КУРИЛИШИ НЕГА ТЕЖАЛДИ?",
+        "text": "Томчилатиб сугориш технологиясини жорий қилиш бўйича туман ҳокимлиги мутасаддиларидан tonтуман ширин бўлгач (топширик хокимлигидан келганини фермер М.Сапаровнинг тасдиқлади), ўзи «Fozilbek Kamalovich» фермер хужалиги ҳам бошқа фермерлар қатори аввал амалиётда синаб кўрилмаган тизимни құллашға рози бұлди. Қолаверса, янги технологияни жорий қилишга бош қотириб ўтирмайди, чунки туман хокимиятидагилар бу ишни хам «пишириб» күйган экан: пудратчи «Beruniy-Plastik-01» масъулияти чекланган жамияти барчасини ўзи қал қилиб берадиган бўлди ва ўрталарида 2021 йил 1 апрель куни шартнома тузилди. Лойиҳанинг жами қиймати 499 миллион 950 минг сўмга ёки 47 минг АҚШ долларига бақоланди. Бир ой ичида 347 миллион сўм пудратчининг хисобракамига ўтказилди. Шартномага кўра, пудратчи томчилатиб суғориш технологиясини 90 кун ичида тўлиқ ўрнатиб бериши керак эди.\nФермер аввалида туман ҳокимлиги тавсия қилганидан кейин пудратчидан гумон қилмайди. Лекин июнь Фермернинг айтишича, пудратчи ўз қурилмаларининг яроқлилик сертификатларини тақдим этмаган, қовуздаги сувни эса тиндирмасдан далага ҳайдаган. Оқибатда томизгичларнинг кўзларига лой тикилиб колган.\nЛойиха бўйича ўрнатилиши керак булган ускуналардан 74 миллион 635 минг сўмлик камомад аникланди. Масалан, лойиха хужжатларида 20 гектар майдонга 240 километр томизгичли лента тортилиши зарур бўлса, амалда 134 километр тортилган, холос, 106 километр лента йўк, Бунинг нархи эса 47 миллион 700 минг сўмни ташкил қилади. 800 метрлик қувур ётқизилиши керак бўлса, шунинг атиги 520 метригина бор ва хоказо. Баъзи қурилмалар керагидан ортиқ олиб келинган, бундан кўриниб турибдики, тизим лойихадагидек қу рилмаган.\nСентябрь ойининг ўрталарида тизимнинг қандай ишлаётганини текшириш учун келган мутасаддилар аҳволни ўз кўзлари билан кўради. 10 гектарга тортилган томизгичли қувурларнинг ўзи хам нотўгри қурилган – бир ариқда",
+        "date": "2022-06-13",
+        "source": "gov_news",
+        "translation": "After an order came from the district administration (which farmer M. Saparov confirmed was an instruction from the hokimiyat) to introduce drip irrigation technology, the 'Fozilbek Kamalovich' farm — like other farmers — agreed to adopt the system, even though it had not been tested in practice. Moreover, the farm did not have to worry about how to implement the new technology, because the hokimiyat had already 'cooked' everything: the contractor, 'Beruniy-Plastik-01' LLC, agreed to handle everything, and on April 1, 2021, a contract was signed between them. The total project cost was valued at 499,950,000 soums, or approximately 47,000 US dollars. Within one month, 347 million soums were transferred to the contractor's account. Under the contract, the contractor was required to fully install the drip irrigation technology within 90 days.\nAt first the farmer did not suspect the contractor, since the hokimiyat had recommended them. But in June [problems began]. According to the farmer, the contractor did not provide quality certificates for the equipment, and unfiltered water from the canal was sent directly to the field. As a result, the drip emitters became clogged with silt.\nA shortfall of equipment worth 74,635,000 soums was identified. For example, the project documents called for 240 kilometers of drip tape to be laid across the 20-hectare plot, but in reality only 134 kilometers were laid — 106 kilometers are missing, worth 47,700,000 soums. Where 800 meters of pipe should have been laid, only 520 meters were installed, and so on. Some equipment was delivered in excess of what was needed, making it clear that the system was not built as designed.\nIn mid-September, officials who came to inspect how the system was functioning saw the situation with their own eyes. The drip pipes installed on 10 hectares were themselves built incorrectly — in one furrow there was a pipe, in the next there was none, in the third there was one again.",
+        "title_translation": "Or, who will listen to the complaint of a farmer from Beruniy?\nWHY WAS THE CONSTRUCTION OF THE THRIFTY EQUIPMENT DELAYED?"
+      }
+    },
+    {
+      "id": "lack_of_training",
+      "label": "Lack of training",
+      "definition": "Farmers and local specialists lack adequate knowledge, training, or technical guidance on how to properly operate, maintain, and optimize WST systems — leading to misuse, poor results, or technology abandonment.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_5767",
+        "text": "Bizdayam shu xuddi do'kondan sotib olgandaymiz! Na bir mutaxisisi bor na bir tusguncha bor bu borada menda nima oldim nima u ozi qanday bolishi aslmi yo paddelka hech malunot yoqda",
+        "date": "2021-12-11",
+        "translation": "Same thing with us — it was like buying from a shop! No specialist, no instruction booklet. I have no information about what I got, what it's supposed to look like, whether it's genuine or a fake."
+      },
+      "news_example": {
+        "id": "gov_170152",
+        "title": "Кишлок хужалиги хамда Сув хужалиги вазирликларига!\nТОМЧИЛАТИБ СУГОРИШ ФАҚАТ КАТТА ФЕРМЕРЛАР УЧУНМИР",
+        "text": "Бухоро вилояти Хукумат бунинг олдини олиш учун томчилатиб суғориш, спринклер тизимлари, сув тежовчи технологияларни жорий этиш, махсус ускуналар учун имтиёзли кредитлар ажратиш каби зарур чораларни ишлаб чиқяпти.\nАммо ажратилаётган кредит ва лизинглар арзимас ерга эга дехконларга у кадар наф келтирмаяпти. Бу фақат йирик фермер хўжаликларига қўл келяпти, назаримизда.\nМасалан, бир гектар ерга томчилатиб суғориш тизимини ўрнатиш учун ўртача 15-20 миллион сўм атрофида маблағ керак. 10-15 сотих ери бор дехконга бу маблағ кўплик қилади.\nИккинчидан, дехконларнинг аксарияти янги технологиядан яхши хабардор эмас. Айникса, кичик фермерлар ва дехконлар унинг афзалликлари, хизмат кўрсатиш, таъмирлаш ва фильтрлаш жараёнларини тўлиқ билишмайди.\nУчинчидан, томчилатиб суғориш тизимлари ҳар қандай тупроқ ва ҳосилга мос келавермайди. Бунинг учун малакали агроном маслаҳати зарур. Хар холда, сувни тежаш фақат технология эмас, бошқарув масаласи ҳамдир.\nШундай экан, Қишлоқ хужалиги ва Сув хужалиги вазирликлари сув тежовчи технологиялар учун берилаётган кредит ва лизинглар қўли калтароқ дехконлар, кичик ер эгаларига ҳам бирдек наф келтириши учун қандай чоралар кўряпти? Масъуллар бу тизимдан фақат йирик фермерлар эмас, балки оддий ахоли қатлами хам фойдаланиши учун субсидия ёки грант дастурлари жорий қилиш қақида бош қотириб кўрганми?\nДилдора ИБРОҲИМОВА",
+        "date": "2025-07-31",
+        "source": "gov_news",
+        "translation": "The Bukhara regional government is developing necessary measures to prevent this situation, such as introducing drip irrigation, sprinkler systems, and water-saving technologies, and providing preferential credits for specialized equipment.\nHowever, the credits and leases being allocated are not benefiting smallholders with modest plots of land. It seems to be useful only for large farming enterprises.\nFor example, installing a drip irrigation system on one hectare costs an average of 15–20 million soums. For a farmer with only 10–15 sotikh of land, this amount is prohibitively large.\nSecond, the majority of small farmers are not well informed about the new technology. Especially small farmers and smallholders are not fully aware of its advantages, maintenance requirements, servicing, and filtering processes.\nThird, drip irrigation systems are not suitable for all soil types and all crops. Qualified agronomist advice is necessary. In any case, saving water is not only a technological issue — it is also a management challenge.\nWith this in mind, what measures are the Ministries of Agriculture and Water Resources taking to ensure that the credits and leases for water-saving technologies benefit not only large farmers but also smallholders and those with limited land? Have the responsible authorities considered introducing subsidy or grant programs so that not only large farmers but ordinary citizens can also benefit from these systems?\n— Dildora Ibrohimova",
+        "title_translation": "To the Ministries of Agriculture and Water Resources!\nIS DRIP IRRIGATION ONLY FOR LARGE FARMERS?"
+      }
+    },
+    {
+      "id": "soil_climate_unsuitability",
+      "label": "Soil / climate unsuitability",
+      "definition": "WST (especially drip irrigation) is ineffective or harmful when applied to saline soils, high-groundwater areas, heavy clay soils, or regions with extreme heat — causing salt accumulation, poor water penetration, or crop damage rather than intended benefits.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_4107",
+        "text": "Томчилатиб суғориш ҳамма тупроқларда ҳам бўлавермайди, шўрланган ерларга, ёки кўп сув талаб қиладиган, микроиқлим, яъни салқинликни яхши кўрадиган ва жуда иссиқ зоналарда очиқ далада ярамайди бу усул. Ҳар бир суғориш усулларини ўз шароити бор.",
+        "date": "2021-11-30",
+        "translation": "Drip irrigation does not work on all soil types. It is not suitable for saline soils, crops with high water demands, or in microclimate zones that need coolness — it simply does not work in open fields in very hot areas. Every irrigation method has its own conditions where it works best."
+      },
+      "news_example": {
+        "id": "gov_72186",
+        "title": "Президент Республики Узбекистан Ш.МИРЗИЁЕВ",
+        "text": "Город Ташкент, 13 февраля 2019 года.\nпосев проведен и завершен в оптимальные сроки.\nВегетационный период составил 190-200 дней. Средняя урожайность всех трех демонстрационных полей (Ташкентская, Сырдарынская и Джизакская области) - лишь 20,7 центнера с каждого гектара (сорта \"гедера-5\", \"гедера-10\"). Возможно, это связано с тем, что в Израиле систему капельного орошения в большинстве случаев применяют на легких, песчаных почвах, где вода способна проникать в нижерасположенные слои почвы и есть возможность углубиться корневой системе. При проведении опытов в условиях тяжелых почв вода не в полной мере проникает в подпахотные слои. Образовавшаяся в процессе корка препятствует этому, а отсутствие культивации затягивает вегетационный период.\nРезюмируя, отметим, что опыт израильских экспертов значим для Узбекистана, нацеленного развивать водосберегающие технологии и урожайность с гектара. Однако хорошие результаты в местных условиях можно получить при посеве на легких почвах.\nРенат Назаров.\nЗаслуженный работник сельского хозяйства Узбекистана.\nДоктор сельскохозяйственных наук, профессор.",
+        "date": "2019-02-11",
+        "source": "gov_news",
+        "translation": "Tashkent city, February 13, 2019.\nSowing was carried out and completed within the optimal timeframe. The vegetation period was 190–200 days. The average yield across all three demonstration fields (Tashkent, Syrdarya, and Jizzakh regions) was only 20.7 centners per hectare (varieties 'gedera-5', 'gedera-10'). This may be related to the fact that in Israel, drip irrigation is mostly used on light, sandy soils, where water can penetrate to deeper soil layers and root systems can grow deep. In tests conducted on heavy soils in Uzbekistan, water did not fully penetrate the subsoil layers. The crust that forms during the process prevents this, and the absence of cultivation extends the vegetation period.\nIn summary, the experience of Israeli experts is valuable for Uzbekistan, which is targeting the development of water-saving technologies and per-hectare yields. However, good results in local conditions can only be achieved on light soils.\n— Renat Nazarov,\nHonored Worker of Agriculture of Uzbekistan,\nDoctor of Agricultural Sciences, Professor.",
+        "title_translation": "President of the Republic of Uzbekistan Sh. MIRZIYOYEV"
+      }
+    },
+    {
+      "id": "not_sufficient_yield_profit",
+      "label": "Insufficient yield / profit",
+      "definition": "WST fails to deliver expected yield/profit after implementation.",
+      "criterion_help": {},
+      "telegram_example": {
+        "id": "tg_171261",
+        "text": "Ака у кийин масала биз синаб курдик фойдаси булмади бизни фермерлар шу матохни олганидан пушаймон энди эштинг сиз чанкаб келдиз сизни огзизга томчилатиб сув бергани яхшими ёки сувни бор буйига кутариб ичганиз яхшими менимча бор буйига сувни ичганиз сизга макул тугрими шунда чанкок конади",
+        "date": "2022-12-11",
+        "translation": "Brother, that's a tough question — we tried it and it brought no benefit. Our farmers regret ever buying this thing. Now listen: when you are thirsty, is it better to have water dripped into your mouth drop by drop, or to drink a full glass all at once? I think drinking a full glass is what satisfies your thirst — am I right? That's how it is with drip irrigation too."
+      },
+      "news_example": {
+        "id": "gov_161246",
+        "title": "Масаланинг ечими иш берувчига боглик",
+        "text": "CHORDIST WHOOLED HAVE «Ishonch» газетасининг шу йил 23 апрелдаги сонида чоп этилган «Масала қачон ечим топади?» сарлавҳали мақолада архив тизими хо- Беруний туманида фаолият юритаётган «Fozilbek Kamalovich» фермер хўжалиги 20 гектар пахта майдонига томчилатиб суғориш технологиясини жорий қилиш ортидан жиддий йўқотишлару муаммоларга учради. Қарийб ярим миллиард сўмлик давлат субсидияси хамда имтиёзли кредитлар хисобига харид қилинган лойиҳа бир ойга бормасдан барбод булди. Фермер эса пахта етказиб бериш бүйича кластер билан тузилган шартномасини бажара олмай, инқирозга юз тутди.\nқувур бор, иккинчисида йўқ, учинчисида яна мавжуд. Яъни, ўртада битта ариқ бўш қолиб кетяпти. Демак, у ариқда экилган пахталар сув ичмаслиги керакми, унда қандай қосил беради? Аммо, аввал таъкидланганидек тизим умуман ишдан чиққан эди. Бу вақтга (2021 йилнинг сентябрь ойи)\nкелиб, сугориш муддатлари аллакачон ўтиб бўлган, гўза майдонига сув бериш кечиккани оқибатида қосилдорлик қам камайиб кетган эди.",
+        "date": "2022-06-13",
+        "source": "gov_news",
+        "translation": "[OCR noise ignored] An article published in the 'Ishonch' newspaper on April 23 of this year, titled 'When Will the Problem Be Solved?', reported that the 'Fozilbek Kamalovich' farm operating in Beruniy district suffered serious losses and problems after introducing drip irrigation technology on 20 hectares of cotton. A project purchased with nearly half a billion soums in state subsidies and preferential loans failed in under a month. The farmer was unable to fulfill his contract with the cluster for cotton delivery and faced financial collapse. In one row there was a pipe, in the next row there was none, and in the third there was one again — meaning an entire irrigation furrow was left without water. How could the cotton planted there produce any yield? But as noted earlier, the system had completely broken down. By the time September 2021 arrived, the irrigation windows had already passed, and the delay in watering the cotton fields had reduced yields as well.",
+        "title_translation": "The solution to the problem depends on the employer"
+      }
+    }
+  ],
+  "criteria": [
+    {
+      "key": "observability",
+      "title": "Observability",
+      "question": "Which is HARDER for the central government to see in official channels?",
+      "high_means": "harder to observe"
+    },
+    {
+      "key": "solvability",
+      "title": "Solvability",
+      "question": "Which is HARDER for the government to actually solve?",
+      "high_means": "harder to solve"
+    },
+    {
+      "key": "donor_pressure",
+      "title": "Donor accountability",
+      "question": "If left unsolved, which would risk MORE donor consequences (frozen disbursements, conditionality, reputational cost)?",
+      "high_means": "more donor pressure"
+    }
+  ],
+  "pair_sequence": [
+    {
+      "criterion": "observability",
+      "a_id": "water_schedule_mismatch",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "installation_problems",
+      "b_id": "not_sufficient_yield_profit"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "installation_problems",
+      "b_id": "not_sufficient_yield_profit"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "not_sufficient_yield_profit",
+      "b_id": "high_cost"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "contractor_fraud",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "not_sufficient_yield_profit",
+      "b_id": "high_cost"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "electricity_supply_problems",
+      "b_id": "high_cost"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "lack_of_training",
+      "b_id": "electricity_supply_problems"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "water_schedule_mismatch",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "electricity_supply_problems",
+      "b_id": "high_cost"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "contractor_fraud",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "not_sufficient_yield_profit",
+      "b_id": "high_cost"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "lack_of_training",
+      "b_id": "electricity_supply_problems"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "electricity_supply_problems",
+      "b_id": "high_cost"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "soil_climate_unsuitability",
+      "b_id": "water_source_unavailability"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "water_source_unavailability",
+      "b_id": "not_sufficient_yield_profit"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "soil_climate_unsuitability",
+      "b_id": "water_source_unavailability"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "soil_climate_unsuitability",
+      "b_id": "water_source_unavailability"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "lack_of_training",
+      "b_id": "electricity_supply_problems"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "installation_problems",
+      "b_id": "not_sufficient_yield_profit"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "water_source_unavailability",
+      "b_id": "not_sufficient_yield_profit"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "contractor_fraud",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "water_source_unavailability",
+      "b_id": "not_sufficient_yield_profit"
+    },
+    {
+      "criterion": "observability",
+      "a_id": "water_schedule_mismatch",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "installation_problems",
+      "b_id": "water_schedule_mismatch"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "soil_climate_unsuitability",
+      "b_id": "lack_of_training"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "water_schedule_mismatch",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "forced_adoption",
+      "b_id": "equipment_malfunction"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "installation_problems",
+      "b_id": "water_schedule_mismatch"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "contractor_fraud",
+      "b_id": "equipment_malfunction"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "contractor_fraud",
+      "b_id": "equipment_malfunction"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "water_schedule_mismatch",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "installation_problems",
+      "b_id": "water_schedule_mismatch"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "electricity_supply_problems",
+      "b_id": "contractor_fraud"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "forced_adoption",
+      "b_id": "equipment_malfunction"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "electricity_supply_problems",
+      "b_id": "contractor_fraud"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "lack_of_training",
+      "b_id": "subsidy_delay_or_nonpayment"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "contractor_fraud",
+      "b_id": "water_schedule_mismatch"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "electricity_supply_problems",
+      "b_id": "contractor_fraud"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "soil_climate_unsuitability",
+      "b_id": "lack_of_training"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "contractor_fraud",
+      "b_id": "water_schedule_mismatch"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "contractor_fraud",
+      "b_id": "water_schedule_mismatch"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "soil_climate_unsuitability",
+      "b_id": "lack_of_training"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "contractor_fraud",
+      "b_id": "equipment_malfunction"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "water_schedule_mismatch",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "lack_of_training",
+      "b_id": "subsidy_delay_or_nonpayment"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "forced_adoption",
+      "b_id": "equipment_malfunction"
+    },
+    {
+      "criterion": "solvability",
+      "a_id": "lack_of_training",
+      "b_id": "subsidy_delay_or_nonpayment"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "high_cost",
+      "b_id": "installation_problems"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "contractor_fraud",
+      "b_id": "equipment_malfunction"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "contractor_fraud",
+      "b_id": "equipment_malfunction"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "subsidy_delay_or_nonpayment",
+      "b_id": "lack_of_training"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "contractor_fraud",
+      "b_id": "equipment_malfunction"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "not_sufficient_yield_profit",
+      "b_id": "water_source_unavailability"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "not_sufficient_yield_profit",
+      "b_id": "water_source_unavailability"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "subsidy_delay_or_nonpayment",
+      "b_id": "lack_of_training"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "contractor_fraud",
+      "b_id": "high_cost"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "equipment_malfunction",
+      "b_id": "electricity_supply_problems"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "equipment_malfunction",
+      "b_id": "electricity_supply_problems"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "forced_adoption",
+      "b_id": "contractor_fraud"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "contractor_fraud",
+      "b_id": "high_cost"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "high_cost",
+      "b_id": "installation_problems"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "high_cost",
+      "b_id": "installation_problems"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "contractor_fraud",
+      "b_id": "high_cost"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "high_cost",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "forced_adoption",
+      "b_id": "contractor_fraud"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "high_cost",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "forced_adoption",
+      "b_id": "contractor_fraud"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "not_sufficient_yield_profit",
+      "b_id": "water_source_unavailability"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "subsidy_delay_or_nonpayment",
+      "b_id": "lack_of_training"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "high_cost",
+      "b_id": "soil_climate_unsuitability"
+    },
+    {
+      "criterion": "donor_pressure",
+      "a_id": "equipment_malfunction",
+      "b_id": "electricity_supply_problems"
+    }
+  ]
+};
+</script>
+
+<script>
+// =============================================
+// PART 1: RENDER LAYER (mirrors index_template.html — same escapeHtml/renderQuote
+// /renderCard/renderPair so card layout is identical)
+// =============================================
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderQuote(quoteObj, kind) {
+  if (!quoteObj) {
+    return `<div class="quote ${kind} placeholder-news">
+      <div class="meta">${kind === "news" ? "NEWS" : "TELEGRAM"} — no exemplar</div>
+      <i>No ${kind} coverage of this problem found in the corpus.</i>
+    </div>`;
+  }
+  const titleStr = quoteObj.title
+    ? (quoteObj.title_translation
+        ? ` — "${escapeHtml(quoteObj.title)}" / EN: "${escapeHtml(quoteObj.title_translation)}"`
+        : ` — "${escapeHtml(quoteObj.title)}"`)
+    : "";
+  const meta = kind === "news"
+    ? `${escapeHtml((quoteObj.source || "news").toUpperCase())} (${escapeHtml(quoteObj.date || "n.d.")})${titleStr}`
+    : `TELEGRAM (${escapeHtml(quoteObj.date || "n.d.")})`;
+  const translation = quoteObj.translation
+    ? `<div class="translation">${escapeHtml(quoteObj.translation)}</div>`
+    : "";
+  return `<div class="quote ${kind}">
+    <div class="meta">${meta}</div>
+    "${escapeHtml(quoteObj.text || "")}"
+    ${translation}
+  </div>`;
+}
+
+function renderCard(problem, criterion_key, side) {
+  const critData = DATA.criteria.find(c => c.key === criterion_key);
+  if (!critData) throw new Error(`renderCard: unknown criterion '${criterion_key}'`);
+  const helpMap = problem.criterion_help || {};
+  const help = helpMap[criterion_key] || "";
+  const critTitle = critData.title.toUpperCase();
+  const helpHtml = help
+    ? `<div class="crit-help"><b>Why this matters for ${escapeHtml(critTitle)}:</b> ${escapeHtml(help)}</div>`
+    : "";
+  return `<div class="card" data-side="${escapeHtml(side)}" data-problem-id="${escapeHtml(problem.id)}">
+    <h2>${escapeHtml(problem.label)}</h2>
+    <div class="definition">${escapeHtml(problem.definition)}</div>
+    ${helpHtml}
+    ${renderQuote(problem.telegram_example, "telegram")}
+    ${renderQuote(problem.news_example, "news")}
+    <button type="button" class="pick-btn" data-pick="${escapeHtml(side)}">${side === "left" ? "← THIS ONE" : "THIS ONE →"}</button>
+  </div>`;
+}
+
+function renderPair(leftId, rightId, criterion_key) {
+  const left = DATA.problems.find(p => p.id === leftId);
+  const right = DATA.problems.find(p => p.id === rightId);
+  const crit = DATA.criteria.find(c => c.key === criterion_key);
+  if (!left) throw new Error(`renderPair: unknown problem '${leftId}'`);
+  if (!right) throw new Error(`renderPair: unknown problem '${rightId}'`);
+  if (!crit) throw new Error(`renderPair: unknown criterion '${criterion_key}'`);
+  $("#question").textContent = crit.question;
+  $("#cards").innerHTML = renderCard(left, criterion_key, "left") + renderCard(right, criterion_key, "right");
+}
+
+function renderTopbar(currentCriterion, position, total) {
+  $$(".pill").forEach(pill => {
+    pill.classList.toggle("active", pill.dataset.criterion === currentCriterion);
+  });
+  const critTitle = (DATA.criteria.find(c => c.key === currentCriterion) || {}).title || currentCriterion;
+  $("#counter").textContent = `Pair ${position} / ${total} — Criterion: ${critTitle}`;
+}
+
+// =============================================
+// PART 2: TOP-UP SESSION CONTROLLER
+// =============================================
+// No BT, no theta, no adaptive picker. We walk DATA.pair_sequence in order,
+// recording each comparison with the same schema as the main UI so refit_bt.py
+// can union it with the original session.
+
+const TOPUP = {
+  // The ordered queue of pairs to walk. Each entry: {criterion, a_id, b_id}.
+  // Frozen at init from DATA.pair_sequence; never mutated.
+  pair_sequence: DATA.pair_sequence.slice(),
+  // Comparisons collected so far, partitioned per criterion. Each entry mirrors
+  // the main UI: { a_id, b_id, outcome, left_id, right_id, ts }.
+  comparisons_by_criterion: {},
+  // Cursor into pair_sequence: how many entries we have ALREADY rated.
+  cursor: 0,
+  // Per-criterion stopped_reason. "in_progress" until that criterion's pairs
+  // are all consumed; then "topup_complete".
+  stopped_reasons: {},
+  started_at: new Date().toISOString(),
+  // Undo stack: parallel to comparisons. Pop to undo the most recent rating.
+  // Each entry: { criterion, comparison, prev_cursor }.
+  undo_stack: [],
+};
+
+DATA.criteria.forEach(c => {
+  TOPUP.comparisons_by_criterion[c.key] = [];
+  TOPUP.stopped_reasons[c.key] = "in_progress";
+});
+
+let currentPair = null;  // { a_id, b_id, criterion }
+
+function totalPairs() { return TOPUP.pair_sequence.length; }
+function pairsForCriterion(critKey) {
+  return TOPUP.pair_sequence.filter(p => p.criterion === critKey).length;
+}
+function ratedForCriterion(critKey) {
+  return (TOPUP.comparisons_by_criterion[critKey] || []).length;
+}
+
+function updatePillProgress() {
+  $$(".pill").forEach(pill => {
+    const k = pill.dataset.criterion;
+    const total = pairsForCriterion(k);
+    const rated = ratedForCriterion(k);
+    const filled = total > 0 ? Math.min(5, Math.floor((rated / total) * 5)) : 0;
+    pill.querySelector(".progress").textContent = "▮".repeat(filled) + "▯".repeat(5 - filled);
+  });
+}
+
+function updateBackButton() {
+  $("#back-btn").disabled = TOPUP.undo_stack.length === 0;
+}
+
+function advanceComparison() {
+  if (TOPUP.cursor >= TOPUP.pair_sequence.length) {
+    // All criteria done.
+    DATA.criteria.forEach(c => { TOPUP.stopped_reasons[c.key] = "topup_complete"; });
+    saveToLocalStorage();
+    showSummary();
+    return;
+  }
+  const next = TOPUP.pair_sequence[TOPUP.cursor];
+  // Mark stopped_reason on any criteria that have no remaining pairs in queue.
+  // (A criterion with zero pairs upfront stays "topup_complete" already.)
+  // Fair coin flip: 50% chance of swapping left/right. Mirrors index_template.html
+  // logic so that recordChoice("a") always means "left wins" from the rater's POV.
+  let a = next.a_id, b = next.b_id;
+  if (Math.random() < 0.5) { [a, b] = [b, a]; }
+  currentPair = { a_id: a, b_id: b, criterion: next.criterion };
+  renderTopbar(next.criterion, TOPUP.cursor + 1, totalPairs());
+  renderPair(a, b, next.criterion);
+  updatePillProgress();
+  updateBackButton();
+}
+
+function recordChoice(outcome) {
+  if (!currentPair) return;
+  const entry = {
+    a_id: currentPair.a_id, b_id: currentPair.b_id,
+    outcome,
+    left_id: currentPair.a_id, right_id: currentPair.b_id,
+    ts: new Date().toISOString(),
+  };
+  TOPUP.comparisons_by_criterion[currentPair.criterion].push(entry);
+  TOPUP.undo_stack.push({
+    criterion: currentPair.criterion,
+    prev_cursor: TOPUP.cursor,
+  });
+  if (TOPUP.undo_stack.length > 10) TOPUP.undo_stack.shift();
+  TOPUP.cursor += 1;
+  saveToLocalStorage();
+  advanceComparison();
+}
+
+function recordUndo() {
+  if (TOPUP.undo_stack.length === 0) return;
+  const snap = TOPUP.undo_stack.pop();
+  // Pop the latest comparison off the corresponding criterion bucket.
+  const arr = TOPUP.comparisons_by_criterion[snap.criterion];
+  if (arr.length > 0) arr.pop();
+  // Rewind cursor so the same pair is shown again.
+  TOPUP.cursor = snap.prev_cursor;
+  saveToLocalStorage();
+  advanceComparison();
+}
+
+function showSummary() {
+  $("#rating-view").style.display = "none";
+  $("#summary").style.display = "block";
+  hideSessionInfoBar();
+  const counts = DATA.criteria.map(c =>
+    `${c.title}: ${ratedForCriterion(c.key)} / ${pairsForCriterion(c.key)}`).join(" • ");
+  $("#summary-counts").textContent = counts;
+}
+
+// SMOKE TESTS
+console.assert(DATA.problems.length >= 1, "DATA must have problems");
+console.assert(DATA.criteria.length === 3, "DATA must have 3 criteria");
+console.assert(Array.isArray(DATA.pair_sequence), "pair_sequence must be array");
+// Every pair_sequence entry references known problems and a known criterion.
+const _problemIds = new Set(DATA.problems.map(p => p.id));
+const _critKeys = new Set(DATA.criteria.map(c => c.key));
+for (const it of DATA.pair_sequence) {
+  console.assert(_problemIds.has(it.a_id), `pair_sequence: unknown a_id ${it.a_id}`);
+  console.assert(_problemIds.has(it.b_id), `pair_sequence: unknown b_id ${it.b_id}`);
+  console.assert(_critKeys.has(it.criterion), `pair_sequence: unknown criterion ${it.criterion}`);
+  console.assert(it.a_id !== it.b_id, `pair_sequence: a_id == b_id (${it.a_id})`);
+}
+console.log("Top-up smoke test passed: pair_sequence shape OK");
+
+// =============================================
+// PART 3: PERSISTENCE (localStorage + Cloudflare Worker)
+// =============================================
+
+const STORAGE_KEY = "wst_rating_topup_session_v1";
+const SESSION_CODE_KEY = "wst_rating_topup_session_code";
+const RATER_NAME_KEY = "wst_rating_topup_rater_name";
+const WORKER_URL = "https://wst-rating.lutir99.workers.dev";
+
+function getSessionCode() { try { return localStorage.getItem(SESSION_CODE_KEY) || ""; } catch (e) { return ""; } }
+function setSessionCode(c) { try { localStorage.setItem(SESSION_CODE_KEY, c); } catch (e) {} }
+function clearSessionCode() { try { localStorage.removeItem(SESSION_CODE_KEY); } catch (e) {} }
+function getRaterName() { try { return localStorage.getItem(RATER_NAME_KEY) || ""; } catch (e) { return ""; } }
+function setRaterName(n) { try { localStorage.setItem(RATER_NAME_KEY, n); } catch (e) {} }
+
+function generateSessionCode() {
+  const alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const arr = new Uint8Array(6);
+  (window.crypto || window.msCrypto).getRandomValues(arr);
+  return Array.from(arr).map(b => alpha[b % alpha.length]).join("");
+}
+
+function buildTopupPayload() {
+  return {
+    saved_at: new Date().toISOString(),
+    is_topup: true,
+    topup_source: DATA.source_targeted_pairs_file || "",
+    rater_name: getRaterName(),
+    cursor: TOPUP.cursor,
+    pair_sequence_len: TOPUP.pair_sequence.length,
+    comparisons_by_criterion: TOPUP.comparisons_by_criterion,
+    stopped_reasons: TOPUP.stopped_reasons,
+    started_at: TOPUP.started_at,
+  };
+}
+
+// Defense-in-depth validator for the top-up persistence shape. A malformed or
+// stale Worker/localStorage payload must be rejected before we hydrate it.
+const MAX_HISTORY_ENTRIES = 500;
+const MAX_RATER_NAME_LEN = 200;
+const VALID_OUTCOMES = new Set(["a", "b", "tie"]);
+
+function validateRemoteState(state) {
+  if (state === null || typeof state !== "object" || Array.isArray(state)) {
+    return { valid: false, reason: "state is not a plain object" };
+  }
+  if (state.is_topup !== true) {
+    return { valid: false, reason: "state is not a top-up payload (is_topup != true)" };
+  }
+  if (state.rater_name !== undefined && state.rater_name !== null) {
+    if (typeof state.rater_name !== "string") {
+      return { valid: false, reason: "rater_name is not a string" };
+    }
+    if (state.rater_name.length > MAX_RATER_NAME_LEN) {
+      return { valid: false, reason: `rater_name longer than ${MAX_RATER_NAME_LEN} chars` };
+    }
+  }
+  if (!Number.isInteger(state.cursor) || state.cursor < 0) {
+    return { valid: false, reason: "cursor missing or negative" };
+  }
+  if (!Number.isInteger(state.pair_sequence_len) || state.pair_sequence_len < 0) {
+    return { valid: false, reason: "pair_sequence_len missing or negative" };
+  }
+  // Stale-schema reject: if the saved pair_sequence_len doesn't match the
+  // current built-in DATA.pair_sequence, the saved state was made against a
+  // different top-up build and hydrating it would desync the cursor.
+  if (state.pair_sequence_len !== DATA.pair_sequence.length) {
+    return { valid: false, reason: `pair_sequence_len mismatch (saved=${state.pair_sequence_len}, current=${DATA.pair_sequence.length}) — likely a different top-up build` };
+  }
+  if (state.cursor > state.pair_sequence_len) {
+    return { valid: false, reason: "cursor exceeds pair_sequence_len" };
+  }
+  if (state.comparisons_by_criterion === null
+      || typeof state.comparisons_by_criterion !== "object"
+      || Array.isArray(state.comparisons_by_criterion)) {
+    return { valid: false, reason: "comparisons_by_criterion is not a plain object" };
+  }
+  const criterionKeys = DATA.criteria.map(c => c.key);
+  const problemSet = new Set(DATA.problems.map(p => p.id));
+  for (const k of criterionKeys) {
+    if (!Object.prototype.hasOwnProperty.call(state.comparisons_by_criterion, k)) {
+      return { valid: false, reason: `comparisons_by_criterion missing criterion '${k}'` };
+    }
+    const arr = state.comparisons_by_criterion[k];
+    if (!Array.isArray(arr)) {
+      return { valid: false, reason: `comparisons_by_criterion['${k}'] is not an array` };
+    }
+    if (arr.length > MAX_HISTORY_ENTRIES) {
+      return { valid: false, reason: `comparisons_by_criterion['${k}'] exceeds ${MAX_HISTORY_ENTRIES}` };
+    }
+    for (let i = 0; i < arr.length; i++) {
+      const h = arr[i];
+      if (h === null || typeof h !== "object" || Array.isArray(h)) {
+        return { valid: false, reason: `comparisons_by_criterion['${k}'][${i}] is not an object` };
+      }
+      if (typeof h.a_id !== "string" || !problemSet.has(h.a_id)) {
+        return { valid: false, reason: `comparisons_by_criterion['${k}'][${i}].a_id invalid or stale ('${h.a_id}')` };
+      }
+      if (typeof h.b_id !== "string" || !problemSet.has(h.b_id)) {
+        return { valid: false, reason: `comparisons_by_criterion['${k}'][${i}].b_id invalid or stale ('${h.b_id}')` };
+      }
+      if (typeof h.outcome !== "string" || !VALID_OUTCOMES.has(h.outcome)) {
+        return { valid: false, reason: `comparisons_by_criterion['${k}'][${i}].outcome not in {a,b,tie} ('${h.outcome}')` };
+      }
+      if (h.left_id !== undefined && (typeof h.left_id !== "string" || !problemSet.has(h.left_id))) {
+        return { valid: false, reason: `comparisons_by_criterion['${k}'][${i}].left_id invalid` };
+      }
+      if (h.right_id !== undefined && (typeof h.right_id !== "string" || !problemSet.has(h.right_id))) {
+        return { valid: false, reason: `comparisons_by_criterion['${k}'][${i}].right_id invalid` };
+      }
+    }
+  }
+  if (state.stopped_reasons === null
+      || typeof state.stopped_reasons !== "object"
+      || Array.isArray(state.stopped_reasons)) {
+    return { valid: false, reason: "stopped_reasons is not a plain object" };
+  }
+  for (const k of criterionKeys) {
+    const sr = state.stopped_reasons[k];
+    if (!(sr === undefined || sr === null || typeof sr === "string")) {
+      return { valid: false, reason: `stopped_reasons['${k}'] is neither null nor a string` };
+    }
+  }
+  return { valid: true };
+}
+
+// SMOKE TEST — runs cheap on every load.
+(function validateRemoteStateSmokeTest() {
+  const verbose = new URLSearchParams(location.search).get("test") === "1";
+  const log = verbose ? (...a) => console.log("[validateRemoteState]", ...a) : () => {};
+  const fail = (label, got) => console.error(`[validateRemoteState FAIL] ${label}:`, got);
+
+  function buildValid() {
+    const cbc = {};
+    DATA.criteria.forEach(c => { cbc[c.key] = []; });
+    return {
+      saved_at: new Date().toISOString(),
+      is_topup: true,
+      topup_source: "x",
+      rater_name: "smoke",
+      cursor: 0,
+      pair_sequence_len: DATA.pair_sequence.length,
+      comparisons_by_criterion: cbc,
+      stopped_reasons: { observability: "in_progress", solvability: "in_progress", donor_pressure: "in_progress" },
+      started_at: new Date().toISOString(),
+    };
+  }
+  // Case 1: valid synthetic payload.
+  const r1 = validateRemoteState(buildValid());
+  if (!r1.valid) fail("synthetic valid rejected", r1); else log("Case 1 PASS");
+  // Case 2: missing is_topup flag.
+  const b2 = buildValid(); delete b2.is_topup;
+  const r2 = validateRemoteState(b2);
+  if (r2.valid) fail("missing is_topup accepted", r2); else log("Case 2 PASS");
+  // Case 3: stale problem id in history.
+  const b3 = buildValid();
+  b3.comparisons_by_criterion[DATA.criteria[0].key].push({
+    a_id: "hacked", b_id: DATA.problems[0].id, outcome: "a", ts: "now"
+  });
+  const r3 = validateRemoteState(b3);
+  if (r3.valid) fail("stale problem id accepted", r3); else log("Case 3 PASS");
+  // Case 4: pair_sequence_len mismatch.
+  const b4 = buildValid(); b4.pair_sequence_len += 1;
+  const r4 = validateRemoteState(b4);
+  if (r4.valid) fail("pair_sequence_len mismatch accepted", r4); else log("Case 4 PASS");
+  // Case 5: bad outcome.
+  const b5 = buildValid();
+  b5.comparisons_by_criterion[DATA.criteria[0].key].push({
+    a_id: DATA.problems[0].id, b_id: DATA.problems[Math.min(1, DATA.problems.length-1)].id,
+    outcome: "draw", ts: "now"
+  });
+  const r5 = validateRemoteState(b5);
+  if (r5.valid) fail("bad outcome accepted", r5); else log("Case 5 PASS");
+  // Case 6: cursor overflow.
+  const b6 = buildValid(); b6.cursor = b6.pair_sequence_len + 1;
+  const r6 = validateRemoteState(b6);
+  if (r6.valid) fail("cursor overflow accepted", r6); else log("Case 6 PASS");
+  // Case 7: null.
+  const r7 = validateRemoteState(null);
+  if (r7.valid) fail("null accepted", r7); else log("Case 7 PASS");
+  if (verbose) console.log("[validateRemoteState] smoke tests complete");
+})();
+
+function saveToLocalStorage() {
+  const payload = buildTopupPayload();
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }
+  catch (e) { console.warn("localStorage save failed:", e); }
+  saveToWorker(payload);
+}
+
+function loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+
+function clearLocalStorage() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+}
+
+function saveToWorker(payload) {
+  const code = getSessionCode();
+  if (!code || !WORKER_URL) return;
+  fetch(`${WORKER_URL}/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId: code, state: payload }),
+  }).catch(e => console.warn("Worker save failed (continuing local-only):", e));
+}
+
+async function loadFromWorker(code) {
+  if (!WORKER_URL) return null;
+  try {
+    const r = await fetch(`${WORKER_URL}/load?id=${encodeURIComponent(code)}`);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+function showSessionInfoBar() {
+  const code = getSessionCode();
+  const bar = document.getElementById("session-info-bar");
+  const disp = document.getElementById("session-code-display");
+  if (!bar || !disp || !code) return;
+  disp.textContent = code;
+  bar.style.display = "block";
+}
+function hideSessionInfoBar() {
+  const bar = document.getElementById("session-info-bar");
+  if (bar) bar.style.display = "none";
+}
+
+// =============================================
+// PART 4: BOOT (welcome / resume flow)
+// =============================================
+
+function hydrateFromPayload(p) {
+  TOPUP.cursor = p.cursor || 0;
+  TOPUP.comparisons_by_criterion = p.comparisons_by_criterion || TOPUP.comparisons_by_criterion;
+  TOPUP.stopped_reasons = p.stopped_reasons || TOPUP.stopped_reasons;
+  TOPUP.started_at = p.started_at || TOPUP.started_at;
+}
+
+function startNewSession() {
+  if (!getSessionCode()) setSessionCode(generateSessionCode());
+  $("#name-prompt").style.display = "none";
+  $("#resume-prompt").style.display = "none";
+  $("#rating-view").style.display = "block";
+  $("#mode-banner").style.display = "block";
+  showSessionInfoBar();
+  advanceComparison();
+}
+
+async function attemptResumeFromCode() {
+  const code = ($("#resume-code-input").value || "").trim().toUpperCase();
+  const msg = $("#resume-code-msg");
+  msg.textContent = "";
+  if (!/^[A-Z0-9]{4,32}$/.test(code)) {
+    msg.textContent = "Enter a 4-32 character code (letters and digits, no spaces).";
+    return;
+  }
+  msg.style.color = "#666";
+  msg.textContent = "Loading...";
+  const remote = await loadFromWorker(code);
+  msg.style.color = "#c00";
+  if (!remote) {
+    msg.textContent = "No session found for that code.";
+    return;
+  }
+  const remoteCheck = validateRemoteState(remote);
+  if (!remoteCheck.valid) {
+    console.warn("Remote session rejected:", remoteCheck.reason, remote);
+    msg.textContent = "This session could not be loaded — saved data is invalid or from a different top-up build.";
+    return;
+  }
+  setRaterName(remote.rater_name || "anonymous");
+  setSessionCode(code);
+  hydrateFromPayload(remote);
+  saveToLocalStorage();
+  $("#name-prompt").style.display = "none";
+  if (TOPUP.cursor >= TOPUP.pair_sequence.length) {
+    DATA.criteria.forEach(c => { TOPUP.stopped_reasons[c.key] = "topup_complete"; });
+    showSummary();
+  } else {
+    $("#rating-view").style.display = "block";
+    $("#mode-banner").style.display = "block";
+    showSessionInfoBar();
+    advanceComparison();
+  }
+}
+
+function boot() {
+  const prev = loadFromLocalStorage();
+  const prevValid = prev && Number.isInteger(prev.cursor) && prev.cursor > 0;
+
+  if (!getRaterName() && !prevValid) {
+    $("#rating-view").style.display = "none";
+    hideSessionInfoBar();
+    $("#name-prompt").style.display = "block";
+    // Pre-fill rater name from build-time DATA.rater_default if user hasn't set one.
+    if (DATA.rater_default && !$("#rater-name-input").value) {
+      $("#rater-name-input").value = DATA.rater_default;
+    }
+    const urlCode = new URLSearchParams(location.search).get("code");
+    if (urlCode) $("#resume-code-input").value = urlCode.toUpperCase();
+    $("#rater-name-submit").addEventListener("click", () => {
+      const v = ($("#rater-name-input").value || "").trim().slice(0, 40);
+      setRaterName(v || "anonymous");
+      startNewSession();
+    }, { once: true });
+    $("#resume-code-submit").addEventListener("click", attemptResumeFromCode);
+    $("#rater-name-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("#rater-name-submit").click();
+    });
+    $("#resume-code-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("#resume-code-submit").click();
+    });
+    return;
+  }
+
+  if (prevValid) {
+    // Defense-in-depth: re-validate localStorage payload before hydrating.
+    const localCheck = validateRemoteState(prev);
+    if (!localCheck.valid) {
+      console.warn("Local session rejected:", localCheck.reason, prev);
+      clearLocalStorage();
+      clearSessionCode();
+      $("#rating-view").style.display = "none";
+      hideSessionInfoBar();
+      $("#resume-prompt").style.display = "block";
+      $("#resume-info").style.color = "#c00";
+      $("#resume-info").textContent =
+        "Saved local session is invalid or from a different top-up build; it has been cleared. Choose 'Start fresh' to continue.";
+      $("#resume-yes").style.display = "none";
+      $("#resume-no").addEventListener("click", () => {
+        TOPUP.cursor = 0;
+        DATA.criteria.forEach(c => {
+          TOPUP.comparisons_by_criterion[c.key] = [];
+          TOPUP.stopped_reasons[c.key] = "in_progress";
+        });
+        $("#resume-prompt").style.display = "none";
+        setRaterName("");
+        location.reload();
+      }, { once: true });
+      return;
+    }
+    $("#rating-view").style.display = "none";
+    hideSessionInfoBar();
+    $("#resume-prompt").style.display = "block";
+    const codeNote = getSessionCode() ? ` (Code: ${getSessionCode()})` : "";
+    $("#resume-info").textContent = `Found a top-up session saved at ${prev.saved_at}${codeNote}, ${prev.cursor}/${prev.pair_sequence_len} pairs done. Resume?`;
+    $("#resume-yes").addEventListener("click", () => {
+      hydrateFromPayload(prev);
+      $("#resume-prompt").style.display = "none";
+      $("#rating-view").style.display = "block";
+      $("#mode-banner").style.display = "block";
+      showSessionInfoBar();
+      if (TOPUP.cursor >= TOPUP.pair_sequence.length) {
+        DATA.criteria.forEach(c => { TOPUP.stopped_reasons[c.key] = "topup_complete"; });
+        showSummary();
+      } else {
+        advanceComparison();
+      }
+    }, { once: true });
+    $("#resume-no").addEventListener("click", () => {
+      clearLocalStorage();
+      clearSessionCode();
+      TOPUP.cursor = 0;
+      DATA.criteria.forEach(c => {
+        TOPUP.comparisons_by_criterion[c.key] = [];
+        TOPUP.stopped_reasons[c.key] = "in_progress";
+      });
+      $("#resume-prompt").style.display = "none";
+      setRaterName("");
+      location.reload();
+    }, { once: true });
+    return;
+  }
+
+  // Has rater name but no progress yet → continue.
+  if (prev) clearLocalStorage();
+  if (!getSessionCode()) setSessionCode(generateSessionCode());
+  $("#rating-view").style.display = "block";
+  $("#mode-banner").style.display = "block";
+  showSessionInfoBar();
+  advanceComparison();
+}
+boot();
+
+// =============================================
+// PART 5: EVENT HANDLERS
+// =============================================
+
+document.addEventListener("click", (e) => {
+  if (e.target.matches("[data-pick=left]")) recordChoice("a");
+  else if (e.target.matches("[data-pick=right]")) recordChoice("b");
+});
+$("#tie-btn").addEventListener("click", () => recordChoice("tie"));
+$("#back-btn").addEventListener("click", recordUndo);
+$("#pause-btn").addEventListener("click", () => {
+  saveToLocalStorage();
+  alert("Saved. Close and reopen this page to resume.");
+});
+document.addEventListener("keydown", (e) => {
+  if ($("#rating-view").style.display === "none") return;
+  if (e.key === "ArrowLeft") recordChoice("a");
+  else if (e.key === "ArrowRight") recordChoice("b");
+  else if (e.key === "=" || e.key === "Enter") recordChoice("tie");
+  else if (e.key === "Backspace") { e.preventDefault(); recordUndo(); }
+});
+
+// =============================================
+// PART 6: DOWNLOAD + RESTART
+// =============================================
+
+function buildResultsJSON(timestamp) {
+  const ts = timestamp || new Date().toISOString().replace(/[:.]/g, "-");
+  const out = {
+    session_id: ts,
+    rater: getRaterName() || "anonymous",
+    is_topup: true,
+    topup_source: DATA.source_targeted_pairs_file || "",
+    complete: TOPUP.cursor >= TOPUP.pair_sequence.length,
+    started_at: TOPUP.started_at,
+    saved_at: new Date().toISOString(),
+    criteria: {},
+  };
+  // Mirror the main UI's per-criterion shape so refit_bt.py parses uniformly.
+  // Top-up files carry empty `scores` and empty `ranks`: refit_bt.py preserves
+  // the original session's live theta diagnostic via the "scores_latest" check.
+  DATA.criteria.forEach(c => {
+    const comps = TOPUP.comparisons_by_criterion[c.key] || [];
+    out.criteria[c.key] = {
+      scores: {},
+      ranks: [],
+      comparisons: comps,
+      n_comparisons: comps.length,
+      stopped_reason: TOPUP.stopped_reasons[c.key] || "in_progress",
+    };
+  });
+  return out;
+}
+
+function downloadJSON() {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const data = buildResultsJSON(ts);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeName = (data.rater || "anonymous").replace(/[^A-Za-z0-9_-]/g, "_");
+  a.href = url;
+  a.download = `ratings_topup_${safeName}_${ts.slice(0, 19)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$("#dl-btn").addEventListener("click", downloadJSON);
+$("#restart-btn").addEventListener("click", () => {
+  if (!confirm("Wipe top-up ratings and restart from scratch?")) return;
+  clearLocalStorage();
+  clearSessionCode();
+  setRaterName("");
+  location.reload();
+});
+
+const copyBtn = document.getElementById("copy-code-btn");
+if (copyBtn) {
+  copyBtn.addEventListener("click", async () => {
+    const code = getSessionCode();
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      const orig = copyBtn.textContent;
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => { copyBtn.textContent = orig; }, 1200);
+    } catch (e) {
+      alert("Code: " + code);
+    }
+  });
+}
+</script>
+
+</body>
+</html>
