@@ -1,10 +1,17 @@
 # WST Pairwise Rating Game
 
+**Live site: https://aliutin.github.io/wst-pairwise-rating/**
+
 Thanks for helping rate problems related to Uzbekistan's water-saving technology (drip irrigation) program.
 
 ## How to use
 
-1. **Double-click `index.html`** to open it in your browser.
+**Easiest: just open the live site link above** — no download needed.
+
+Or, run it locally:
+
+1. Clone or download this repo (green "Code" button → "Download ZIP").
+2. **Double-click `index.html`** to open it in your browser.
    - Works on Windows, macOS, and Linux. Any modern browser (Chrome, Firefox, Safari, Edge).
    - On macOS: if double-click does not work, right-click → *Open With* → *Chrome* (or another browser).
 2. **Type your name or initials** on the welcome screen and press *Start rating*.
