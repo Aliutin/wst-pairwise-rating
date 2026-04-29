@@ -35,9 +35,21 @@ About **30–60 minutes** total. The game adapts to your answers and stops askin
 - **TIE** is fine when you genuinely can't decide. It doesn't slow you down.
 - **Pause anytime** — your progress is autosaved every comparison. Closing the tab and reopening shows a "Resume?" prompt.
 
+## Cross-device resume
+
+When you start, the app generates a 6-character **session code** (e.g. `JX7K2P`) shown at the top of the page. Save this code. To continue on a different browser or device:
+
+1. Open the site again on the new device.
+2. Click *"Or resume an existing session"* on the welcome screen.
+3. Paste your code → *Resume*.
+
+The code is also saved automatically in the URL bar — you can bookmark `…/?code=JX7K2P` for one-click return.
+
 ## Privacy
 
-Everything is stored locally in your browser. Nothing is uploaded anywhere. You only share data when you click *Download results JSON* and send the file back manually.
+- Your progress is stored locally in your browser **and** synced to a small server (Cloudflare Worker on the researcher's account) so you can resume across devices via your session code.
+- Only the BT rating state is synced — same data structure as the JSON you'll download at the end. No browser fingerprinting, no third-party trackers.
+- Data is auto-deleted after 180 days of inactivity.
 
 ## Troubleshooting
 

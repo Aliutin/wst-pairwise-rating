@@ -151,6 +151,29 @@ body {
   max-width: 900px;
   margin: 0 auto;
 }
+#name-prompt .welcome-section { margin: 24px 0; }
+#name-prompt .welcome-section h3 { margin: 0 0 8px; font-size: 16px; color: #333; }
+#name-prompt .welcome-section p { font-size: 14px; color: #555; margin: 0 0 12px; }
+#name-prompt .welcome-section input[type=text] {
+  padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px;
+  width: 240px; margin-right: 8px; vertical-align: middle;
+}
+#name-prompt #resume-code-input { text-transform: uppercase; letter-spacing: 2px; font-family: monospace; }
+#name-prompt .welcome-resume { padding-top: 24px; border-top: 1px solid #ddd; }
+#name-prompt #resume-code-msg { margin-top: 12px; font-size: 13px; color: #c00; min-height: 18px; }
+#session-info-bar {
+  background: #f0f6ff; padding: 8px 24px; font-size: 13px; color: #555;
+  border-bottom: 1px solid #cfd9f0; display: none;
+}
+#session-info-bar code {
+  font-weight: bold; font-size: 14px; color: #2c5aa0; letter-spacing: 1px;
+  padding: 2px 6px; background: #fff; border: 1px solid #cfd9f0; border-radius: 3px;
+}
+#session-info-bar button {
+  margin-left: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  border: 1px solid #ccc; background: #fff; border-radius: 3px;
+}
+#session-info-bar button:hover { background: #f0f0f0; }
 #rating-view { display: none; }
 #summary table, #criterion-end table {
   width: 100%;
@@ -185,6 +208,11 @@ body {
   <div id="counter"></div>
   <button type="button" id="pause-btn">Pause</button>
 </div>
+<div id="session-info-bar">
+  Your session code: <code id="session-code-display">—</code>
+  <button type="button" id="copy-code-btn">Copy</button>
+  <span style="margin-left: 16px; color: #888;">Save this code to resume on another device.</span>
+</div>
 
 <div id="rating-view">
   <div id="question"></div>
@@ -198,11 +226,22 @@ body {
 
 <div id="name-prompt">
   <h2>Welcome to the WST rating game</h2>
-  <p>You'll rate 14 problems on three criteria using pairwise comparisons. The whole task takes about 30–60 minutes. Your progress autosaves every comparison — you can pause and reopen anytime.</p>
-  <p><b>Your name or initials</b> (used only to label your downloaded results file):</p>
-  <input type="text" id="rater-name-input" placeholder="e.g. PaulD" style="padding:10px; font-size:14px; border:1px solid #ccc; border-radius:4px; width:240px;" />
-  <br /><br />
-  <button type="button" class="action-btn" id="rater-name-submit">Start rating →</button>
+  <p>You'll rate 14 problems on three criteria using pairwise comparisons. The whole task takes about 30–60 minutes. Your progress autosaves every comparison — you can pause and reopen anytime, including from a different device.</p>
+
+  <div class="welcome-section">
+    <h3>Start a new session</h3>
+    <p>Your name or initials (used to label your downloaded results file):</p>
+    <input type="text" id="rater-name-input" placeholder="e.g. PaulD" />
+    <button type="button" class="action-btn" id="rater-name-submit">Start rating →</button>
+  </div>
+
+  <div class="welcome-section welcome-resume">
+    <h3>Or resume an existing session</h3>
+    <p>Paste your 6-character session code from a previous device:</p>
+    <input type="text" id="resume-code-input" placeholder="e.g. JX7K2P" maxlength="32" />
+    <button type="button" class="action-btn secondary" id="resume-code-submit">Resume →</button>
+    <div id="resume-code-msg"></div>
+  </div>
 </div>
 
 <div id="resume-prompt">
@@ -921,22 +960,61 @@ document.addEventListener("keydown", (e) => {
 });
 
 // =============================================
-// localStorage persistence
+// Session persistence (localStorage + Cloudflare Worker)
 // =============================================
 
 const STORAGE_KEY = "wst_rating_session_v1";
+const SESSION_CODE_KEY = "wst_rating_session_code";
+const WORKER_URL = "https://wst-rating.lutir99.workers.dev";
 
-function saveToLocalStorage() {
-  const payload = {
+function getSessionCode() { try { return localStorage.getItem(SESSION_CODE_KEY) || ""; } catch (e) { return ""; } }
+function setSessionCode(c) { try { localStorage.setItem(SESSION_CODE_KEY, c); } catch (e) {} }
+function clearSessionCode() { try { localStorage.removeItem(SESSION_CODE_KEY); } catch (e) {} }
+
+function generateSessionCode() {
+  const alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";  // skip 0/O/I/1
+  const arr = new Uint8Array(6);
+  (window.crypto || window.msCrypto).getRandomValues(arr);
+  return Array.from(arr).map(b => alpha[b % alpha.length]).join("");
+}
+
+function buildSessionPayload() {
+  return {
     saved_at: new Date().toISOString(),
     currentCriterionIdx: SESSION.currentCriterionIdx,
-    states: SESSION.states
+    states: SESSION.states,
+    rater_name: getRaterName(),
   };
+}
+
+function saveToWorker(payload) {
+  const code = getSessionCode();
+  if (!code || !WORKER_URL) return;
+  // fire-and-forget; failures don't block local save
+  fetch(`${WORKER_URL}/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId: code, state: payload }),
+  }).catch(e => console.warn("Worker save failed (continuing local-only):", e));
+}
+
+async function loadFromWorker(code) {
+  if (!WORKER_URL) return null;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    const r = await fetch(`${WORKER_URL}/load?id=${encodeURIComponent(code)}`);
+    if (!r.ok) return null;
+    return await r.json();
   } catch (e) {
-    console.warn("localStorage save failed:", e);
+    console.warn("Worker load failed:", e);
+    return null;
   }
+}
+
+function saveToLocalStorage() {
+  const payload = buildSessionPayload();
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }
+  catch (e) { console.warn("localStorage save failed:", e); }
+  saveToWorker(payload);
 }
 
 function loadFromLocalStorage() {
@@ -954,10 +1032,63 @@ function clearLocalStorage() {
   try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
 }
 
+function showSessionInfoBar() {
+  const code = getSessionCode();
+  const bar = document.getElementById("session-info-bar");
+  const disp = document.getElementById("session-code-display");
+  if (!bar || !disp || !code) return;
+  disp.textContent = code;
+  bar.style.display = "block";
+}
+function hideSessionInfoBar() {
+  const bar = document.getElementById("session-info-bar");
+  if (bar) bar.style.display = "none";
+}
+
 // BOOT
 const RATER_NAME_KEY = "wst_rating_rater_name";
 function getRaterName() { try { return localStorage.getItem(RATER_NAME_KEY) || ""; } catch (e) { return ""; } }
 function setRaterName(n) { try { localStorage.setItem(RATER_NAME_KEY, n); } catch (e) {} }
+
+function startNewSession() {
+  if (!getSessionCode()) setSessionCode(generateSessionCode());
+  $("#name-prompt").style.display = "none";
+  $("#resume-prompt").style.display = "none";
+  $("#rating-view").style.display = "block";
+  showSessionInfoBar();
+  advanceComparison();
+}
+
+async function attemptResumeFromCode() {
+  const code = ($("#resume-code-input").value || "").trim().toUpperCase();
+  const msg = $("#resume-code-msg");
+  msg.textContent = "";
+  if (!/^[A-Z0-9]{4,32}$/.test(code)) {
+    msg.textContent = "Enter a 4-32 character code (letters and digits, no spaces).";
+    return;
+  }
+  msg.style.color = "#666";
+  msg.textContent = "Loading...";
+  const remote = await loadFromWorker(code);
+  msg.style.color = "#c00";
+  if (!remote || !remote.states) {
+    msg.textContent = "No session found for that code.";
+    return;
+  }
+  setRaterName(remote.rater_name || "anonymous");
+  setSessionCode(code);
+  Object.keys(remote.states).forEach(k => { SESSION.states[k] = remote.states[k]; });
+  SESSION.currentCriterionIdx = remote.currentCriterionIdx || 0;
+  saveToLocalStorage();
+  $("#name-prompt").style.display = "none";
+  if (SESSION.currentCriterionIdx >= SESSION.criterionOrder.length) {
+    showSummary();
+  } else {
+    $("#rating-view").style.display = "block";
+    showSessionInfoBar();
+    advanceComparison();
+  }
+}
 
 function boot() {
   const prev = loadFromLocalStorage();
@@ -967,50 +1098,64 @@ function boot() {
     && prev.currentCriterionIdx >= 0
     && prev.currentCriterionIdx < SESSION.criterionOrder.length
     && Object.values(prev.states).some(s => s && s.history && s.history.length > 0);
+
+  // First-time visit (or fully cleared) → welcome screen with new + resume-by-code
   if (!getRaterName() && !prevValid) {
-    // First-time session and no name yet — ask for one.
     $("#rating-view").style.display = "none";
+    hideSessionInfoBar();
     $("#name-prompt").style.display = "block";
+    // Pre-fill code from URL ?code=... if provided
+    const urlCode = new URLSearchParams(location.search).get("code");
+    if (urlCode) $("#resume-code-input").value = urlCode.toUpperCase();
     $("#rater-name-submit").addEventListener("click", () => {
       const v = ($("#rater-name-input").value || "").trim().slice(0, 40);
       setRaterName(v || "anonymous");
-      $("#name-prompt").style.display = "none";
-      $("#rating-view").style.display = "block";
-      advanceComparison();
+      startNewSession();
     }, { once: true });
+    $("#resume-code-submit").addEventListener("click", attemptResumeFromCode);
     $("#rater-name-input").addEventListener("keydown", (e) => {
       if (e.key === "Enter") $("#rater-name-submit").click();
     });
+    $("#resume-code-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("#resume-code-submit").click();
+    });
     return;
   }
+
+  // Existing local session → resume prompt
   if (prevValid) {
     $("#rating-view").style.display = "none";
+    hideSessionInfoBar();
     $("#resume-prompt").style.display = "block";
-    $("#resume-info").textContent = `Found a session saved at ${prev.saved_at}. Resume where you left off?`;
+    const codeNote = getSessionCode() ? ` (Code: ${getSessionCode()})` : "";
+    $("#resume-info").textContent = `Found a session saved at ${prev.saved_at}${codeNote}. Resume where you left off?`;
     $("#resume-yes").addEventListener("click", () => {
       SESSION.currentCriterionIdx = prev.currentCriterionIdx;
-      // Direct assignment of parsed-from-JSON state objects (already deserialized by loadFromLocalStorage)
-      Object.keys(prev.states).forEach(k => {
-        SESSION.states[k] = prev.states[k];
-      });
+      Object.keys(prev.states).forEach(k => { SESSION.states[k] = prev.states[k]; });
       $("#resume-prompt").style.display = "none";
       $("#rating-view").style.display = "block";
+      showSessionInfoBar();
       advanceComparison();
     }, { once: true });
     $("#resume-no").addEventListener("click", () => {
       clearLocalStorage();
-      // Re-init states fresh
+      clearSessionCode();
       DATA.criteria.forEach(c => { SESSION.states[c.key] = newCriterionState(SESSION.problemIds); });
       SESSION.currentCriterionIdx = 0;
       $("#resume-prompt").style.display = "none";
-      $("#rating-view").style.display = "block";
-      advanceComparison();
+      // Go back to welcome (need fresh name + code)
+      setRaterName("");
+      location.reload();
     }, { once: true });
-  } else {
-    if (prev) clearLocalStorage();  // discard corrupt/stale-schema session
-    $("#rating-view").style.display = "block";  // CSS hides this by default
-    advanceComparison();
+    return;
   }
+
+  // Has rater name but no progress yet → continue
+  if (prev) clearLocalStorage();
+  if (!getSessionCode()) setSessionCode(generateSessionCode());
+  $("#rating-view").style.display = "block";
+  showSessionInfoBar();
+  advanceComparison();
 }
 boot();
 
@@ -1059,8 +1204,37 @@ $("#dl-btn").addEventListener("click", downloadJSON);
 $("#restart-btn").addEventListener("click", () => {
   if (!confirm("Wipe all ratings and restart from scratch?")) return;
   clearLocalStorage();
+  clearSessionCode();
+  setRaterName("");
   location.reload();
 });
+
+const copyBtn = document.getElementById("copy-code-btn");
+if (copyBtn) {
+  copyBtn.addEventListener("click", async () => {
+    const code = getSessionCode();
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      const orig = copyBtn.textContent;
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => { copyBtn.textContent = orig; }, 1200);
+    } catch (e) {
+      alert("Code: " + code);
+    }
+  });
+}
+
+// Hide session info bar when on summary or end-of-criterion screens
+const _showSummary = showSummary;
+showSummary = function() { hideSessionInfoBar(); _showSummary(); };
+const _showCriterionEnd = showCriterionEnd;
+showCriterionEnd = function(k) { _showCriterionEnd(k); };  // keep code visible mid-criterion
+const _continueToNextCriterion = continueToNextCriterion;
+continueToNextCriterion = function() {
+  _continueToNextCriterion();
+  // showSummary inside _continueToNextCriterion already triggered hideSessionInfoBar via override
+};
 </script>
 
 </body>
