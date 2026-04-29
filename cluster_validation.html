@@ -100,14 +100,22 @@ body {
 .card .problems .pdef { color: #444; }
 .card .problems .pexample {
   display: block;
-  margin-top: 2px;
-  padding-left: 10px;
+  margin-top: 4px;
+  padding: 2px 0 2px 10px;
   font-style: italic;
-  color: #6a6a6a;
+  color: #555;
   font-size: 12px;
   border-left: 2px solid #d0d6e0;
 }
 .card .problems .pexample::before { content: "ex. "; font-style: normal; color: #999; font-weight: 600; }
+.card .problems .pmeta {
+  display: block;
+  margin-top: 2px;
+  padding-left: 10px;
+  font-size: 11px;
+  color: #999;
+  font-style: normal;
+}
 .card .pick-btn {
   margin-top: auto;
   padding: 12px;
@@ -302,20 +310,41 @@ body {
 const DATA = {
   task: "cluster_validation",
   engine: "cluster_pairwise_v1",
+  // Per-problem `def` is verbatim from data/problem_definitions.json (the same
+  // wording shown in the main 14-problem rating game). Per-problem `ex` is a
+  // verbatim short span from a real translated Telegram post in the corpus
+  // (the same translations served by index.html); `ex_meta` shows the source
+  // tag + post date so coauthors can recognise it as a real farmer voice.
   clusters: [
     {
       id: "donor_mediated_loop",
       label: "Donor-mediated policy-learning loop",
       definition: "Problems that are donor-legible, donor-financed, and relatively visible to the formal system.",
       problems: [
-        { label: "High cost / loan burden",     def: "Farmers cannot afford the equipment, installation, or loan burden.",
-          ex: "The 506M-soum loan grew to 528M; the cluster now plans to withhold the entire amount from the 2021 cotton payment." },
-        { label: "Lack of training",             def: "Farmers and specialists lack practical guidance on operating and maintaining WST.",
-          ex: "Farmers were given the equipment but no real instruction on how to use or maintain it." },
-        { label: "Water source unavailability",  def: "WST is installed but canal water or wells cannot supply enough water.",
-          ex: "Drip equipment is installed, but canal water never reaches our fields when we need it." },
-        { label: "Soil / climate unsuitability", def: "Saline, heavy-clay, or high-groundwater soils don't suit drip — water doesn't penetrate, salts accumulate.",
-          ex: "On heavy soils in Uzbekistan, water did not penetrate the subsoil; drip works mainly on light, sandy ground." }
+        {
+          label: "High cost / loan burden",
+          def: "Farmers unable to afford WST equipment, installation, maintenance, or loan burden.",
+          ex: "we signed a contract for 506 million soums… by the end of the year, the 506 million has grown to 528 million, and the cluster is planning to withhold the entire amount from our 2021 cotton payment.",
+          ex_meta: "Telegram, 2021-12-08"
+        },
+        {
+          label: "Lack of training",
+          def: "Farmers and local specialists lack adequate knowledge, training, or technical guidance on how to properly operate, maintain, and optimize WST systems — leading to misuse, poor results, or technology abandonment.",
+          ex: "it was like buying from a shop! No specialist, no instruction booklet. I have no information about what I got, what it's supposed to look like, whether it's genuine or a fake.",
+          ex_meta: "Telegram, 2021-12-11"
+        },
+        {
+          label: "Water source unavailability",
+          def: "Farmers install WST systems but lack a reliable or sufficient water source (canal water not reaching fields, seasonal water shortages, insufficient well capacity) to actually operate the technology, rendering the investment useless.",
+          ex: "drip irrigation should only be installed where there is water — but in our area, they go and install it in the most water-scarce locations, so it's useless. Only the farmer suffers.",
+          ex_meta: "Telegram, 2021-12-21"
+        },
+        {
+          label: "Soil / climate unsuitability",
+          def: "WST (especially drip irrigation) is ineffective or harmful when applied to saline soils, high-groundwater areas, heavy clay soils, or regions with extreme heat — causing salt accumulation, poor water penetration, or crop damage rather than intended benefits.",
+          ex: "Drip irrigation does not work on all soil types. It is not suitable for saline soils… or in microclimate zones that need coolness — it simply does not work in open fields in very hot areas.",
+          ex_meta: "Telegram, 2021-11-30"
+        }
       ]
     },
     {
@@ -323,10 +352,18 @@ const DATA = {
       label: "State policy-learning loop",
       definition: "Problems that generate farmer complaints but still enter state administrative response channels.",
       problems: [
-        { label: "Electricity supply problems",  def: "Outages and limited power hours stop pumps and drip systems from running.",
-          ex: "Pumps cannot run during scheduled outages, so drip systems sit idle during peak watering windows." },
-        { label: "Subsidy delay / nonpayment",   def: "Promised subsidies arrive late, are denied, or never disbursed.",
-          ex: "The subsidy came in, but the promised 10% rate cut never took effect — my loan is still at 21%." }
+        {
+          label: "Electricity supply problems",
+          def: "Unreliable electricity supply — including frequent outages, disconnections due to debt, and limited power hours — prevents WST systems (pumps, drip irrigation) from operating as required, causing crop damage or system failure.",
+          ex: "Throughout 2024 we irrigated cotton and wheat using artesian wells and drip irrigation… Despite filing applications multiple times for the 2024 electricity subsidy, none has been allocated. Right now, due to our debt, two of our transformers have been disconnected from the grid.",
+          ex_meta: "Telegram, 2024-11-10"
+        },
+        {
+          label: "Subsidy delay / nonpayment",
+          def: "Government-promised subsidies for WST installation, electricity, or operations are delayed indefinitely, denied without clear reason, or never disbursed — despite farmers having completed installation and submitted required documentation.",
+          ex: "we were told that the subsidy would be applied and the 10% interest rate would be reduced by the Business Chamber. That 10% reduction has not come through — the loan interest is still at 21%.",
+          ex_meta: "Telegram, 2021-12-17"
+        }
       ]
     },
     {
@@ -334,12 +371,24 @@ const DATA = {
       label: "Governance failures",
       definition: "Procurement, contractor, and accountability failures that are partially visible but hard for the formal system to translate into accountability.",
       problems: [
-        { label: "Installation problems",        def: "Poor installation quality, incorrect setup, or contractor errors.",
-          ex: "We agreed on 25M soums per hectare, but the contractor billed separately for the reservoir, foundation, and electrical components." },
-        { label: "Corruption / fund misuse",     def: "Officials embezzle subsidies, inflate prices, or fake installation reports.",
-          ex: "Half a billion soums in subsidies and preferential loans went to a project that failed in under a month." },
-        { label: "Contractor fraud",             def: "Contractors take payment but abandon, deliver incomplete work, or disappear.",
-          ex: "I paid 262M soums for drip irrigation; the contractor has done none of the work to this day." }
+        {
+          label: "Installation problems",
+          def: "Poor installation quality, incorrect setup, or contractor errors.",
+          ex: "we agreed with the contractor on 25 million soums per hectare. But in the final settlement, they billed separately for the water reservoir, the concrete foundation under the pump and tanks, and the electrical components.",
+          ex_meta: "Telegram, 2022-02-01"
+        },
+        {
+          label: "Corruption / fund misuse",
+          def: "Officials, intermediaries, or connected firms embezzle WST subsidies, inflate equipment prices, create fake installation reports, or divert allocated funds — resulting in farmers bearing debt for technology they never received or that was never properly installed.",
+          ex: "All this drip irrigation and sprinkler work is just a money-making scheme for those at the top — nothing more. They keep inventing new ways to take farmers' money.",
+          ex_meta: "Telegram, 2022-04-12"
+        },
+        {
+          label: "Contractor fraud",
+          def: "Contractors or installation firms take payment for WST equipment/installation but abandon the project, deliver incomplete work, disappear, or misappropriate funds — leaving farmers with non-functional systems and unpaid loans.",
+          ex: "I was stuck paying 262,500,000 soums for drip irrigation — the contractor did not do any of the work to this day, even though it was supposed to be done for 2021 cotton.",
+          ex_meta: "Telegram, 2022-01-01"
+        }
       ]
     },
     {
@@ -347,23 +396,43 @@ const DATA = {
       label: "Decay / coercion",
       definition: "Post-adoption decay and coercive implementation problems that are weakly absorbed by formal policy-learning channels.",
       problems: [
-        { label: "Equipment malfunction",        def: "Drip lines, filters, pumps, sprinkler heads break, clog, or fail.",
-          ex: "If a drip tape tears mid-field, it takes 3–4 days to get a replacement — by then the cotton has wilted." },
-        { label: "Forced adoption",              def: "Officials coerce farmers into signing WST contracts regardless of readiness or land fit.",
-          ex: "The hokim told farmers to sign drip contracts regardless of land suitability or capacity to pay." }
+        {
+          label: "Equipment malfunction",
+          def: "Drip lines, filters, pumps, sprinkler heads breaking, clogging, or failing.",
+          ex: "if the drip tape on a field tears in the middle, it takes 3–4 days to order a replacement and have it delivered — by which time the cotton has already wilted and burned.",
+          ex_meta: "Telegram, 2022-09-30"
+        },
+        {
+          label: "Forced adoption",
+          def: "Local officials, hokims, or prosecutors coerce farmers into signing WST contracts, taking loans for equipment, or working with designated firms — often under threat of land seizure, penalties, or administrative pressure — regardless of farmer readiness, land suitability, or financial capacity.",
+          ex: "Brothers, is the hokimiyat also forcing you to buy a 'selka' (sprinkler)? No money, but they say 'you'll buy it' and drag you to the prosecutor's office morning and night",
+          ex_meta: "Telegram, 2025-02-14"
+        }
       ]
     },
     {
       id: "abandoned_dormant",
       label: "Abandoned / dormant problems",
-      definition: "Problems with weak or declining formal response — local agronomic and profitability issues that do not fit the program narrative.",
+      definition: "Problems with weak or declining formal response, including local agronomic issues and profitability concerns that do not fit the program narrative.",
       problems: [
-        { label: "Insufficient yield / profit",  def: "WST fails to deliver expected yields or profit after implementation.",
-          ex: "Average drip yield was ~20.7 centners/hectare across the demonstration fields — well below expectations." },
-        { label: "Water schedule mismatch",      def: "Canal schedules (every 7–15 days in big volumes) clash with drip's need for small frequent flows.",
-          ex: "Canal water arrives every 10 days in large volumes; drip needs small flows every 2–3 days." },
-        { label: "Weed proliferation",           def: "Drip keeps soil moist and uncompacted, fueling weed growth and crushing yields.",
-          ex: "Drip keeps the soil moist and soft, so weeds explode and outpace any reasonable control effort." }
+        {
+          label: "Insufficient yield / profit",
+          def: "WST fails to deliver expected yield/profit after implementation.",
+          ex: "Brother, that's a tough question — we tried it and it brought no benefit. Our farmers regret ever buying this thing.",
+          ex_meta: "Telegram, 2022-12-11"
+        },
+        {
+          label: "Water schedule mismatch",
+          def: "Existing canal-based water delivery schedules (providing water every 7-15 days in large volumes) are incompatible with drip irrigation requirements (needing small frequent flows every 2-3 days), making WST systems impossible to operate as designed.",
+          ex: "you must irrigate every 2–3 days at the prescribed hour… The key thing is that water must always be available on demand.",
+          ex_meta: "Telegram, 2024-02-25"
+        },
+        {
+          label: "Weed proliferation",
+          def: "Drip irrigation creates favorable conditions for excessive weed growth (soil stays moist and soft without the compaction of flood irrigation), making weed control extremely difficult and labor-intensive, and significantly reducing crop yields.",
+          ex: "We have been experimenting with drip-irrigated cotton for about 10 years now. The biggest problem with drip-irrigated cotton cultivation in Uzbekistan is weeds — and for that reason, the best option for cotton is under-film drip irrigation.",
+          ex_meta: "Telegram, 2023-02-26"
+        }
       ]
     }
   ],
@@ -799,12 +868,16 @@ DATA.criteria.forEach(c => { SESSION.states[c.key] = newCriterionState(SESSION.c
 let currentPair = null;  // { a_id, b_id, left_id, right_id }
 
 function renderCard(cluster, side) {
-  const items = (cluster.problems || []).map(p => `
+  const items = (cluster.problems || []).map(p => {
+    const meta = p.ex_meta ? `<span class="pmeta">— ${escapeHtml(p.ex_meta)}</span>` : "";
+    return `
     <li>
       <span class="plabel">${escapeHtml(p.label)}</span>
       <span class="pdef">— ${escapeHtml(p.def)}</span>
       <span class="pexample">"${escapeHtml(p.ex)}"</span>
-    </li>`).join("");
+      ${meta}
+    </li>`;
+  }).join("");
   return `<div class="card" data-side="${escapeHtml(side)}" data-cluster-id="${escapeHtml(cluster.id)}">
     <h2>${escapeHtml(cluster.label)}</h2>
     <div class="definition">${escapeHtml(cluster.definition)}</div>
