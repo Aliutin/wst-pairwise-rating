@@ -1094,6 +1094,12 @@ function validateRemoteState(state) {
     if (cs.theta === null || typeof cs.theta !== "object" || Array.isArray(cs.theta)) {
       return { valid: false, reason: `states['${k}'].theta is not an object` };
     }
+    // Completeness: every current problem id must be present (rejects truncated payloads).
+    for (const pid of SESSION.problemIds) {
+      if (!Object.prototype.hasOwnProperty.call(cs.theta, pid)) {
+        return { valid: false, reason: `states['${k}'].theta missing required problem id '${pid}'` };
+      }
+    }
     for (const pid of Object.keys(cs.theta)) {
       if (!problemSet.has(pid)) {
         return { valid: false, reason: `states['${k}'].theta references unknown problem id '${pid}' (stale schema)` };
@@ -1104,6 +1110,12 @@ function validateRemoteState(state) {
     }
     if (cs.comparison_count === null || typeof cs.comparison_count !== "object" || Array.isArray(cs.comparison_count)) {
       return { valid: false, reason: `states['${k}'].comparison_count is not an object` };
+    }
+    // Completeness: every current problem id must be present in comparison_count too.
+    for (const pid of SESSION.problemIds) {
+      if (!Object.prototype.hasOwnProperty.call(cs.comparison_count, pid)) {
+        return { valid: false, reason: `states['${k}'].comparison_count missing required problem id '${pid}'` };
+      }
     }
     for (const pid of Object.keys(cs.comparison_count)) {
       if (!problemSet.has(pid)) {
@@ -1225,7 +1237,66 @@ function validateRemoteState(state) {
   if (r6.valid) fail("oversized history accepted", r6);
   else log("Case 6 PASS — oversized history rejected:", r6.reason);
 
-  if (verbose) console.log("[validateRemoteState] all smoke tests passed");
+  // Case 7: null payload → expect valid:false.
+  const r7 = validateRemoteState(null);
+  if (r7.valid) fail("null accepted as state", r7);
+  else log("Case 7 PASS — null rejected:", r7.reason);
+
+  // Case 8: array payload → expect valid:false.
+  const r8 = validateRemoteState([]);
+  if (r8.valid) fail("array accepted as state", r8);
+  else log("Case 8 PASS — array rejected:", r8.reason);
+
+  // Case 9: missing currentCriterionIdx → expect valid:false.
+  const bad9 = buildValidPayload(); delete bad9.currentCriterionIdx;
+  const r9 = validateRemoteState(bad9);
+  if (r9.valid) fail("missing currentCriterionIdx accepted", r9);
+  else log("Case 9 PASS — missing currentCriterionIdx rejected:", r9.reason);
+
+  // Case 10: missing criterion key → expect valid:false.
+  const bad10 = buildValidPayload(); delete bad10.states[SESSION.criterionOrder[1]];
+  const r10 = validateRemoteState(bad10);
+  if (r10.valid) fail("missing criterion key accepted", r10);
+  else log("Case 10 PASS — missing criterion key rejected:", r10.reason);
+
+  // Case 11: theta missing required pid (truncated payload) → expect valid:false.
+  const bad11 = buildValidPayload();
+  delete bad11.states[SESSION.criterionOrder[0]].theta[SESSION.problemIds[0]];
+  const r11 = validateRemoteState(bad11);
+  if (r11.valid) fail("theta missing required pid accepted", r11);
+  else log("Case 11 PASS — incomplete theta rejected:", r11.reason);
+
+  // Case 12: comparison_count missing required pid → expect valid:false.
+  const bad12 = buildValidPayload();
+  delete bad12.states[SESSION.criterionOrder[0]].comparison_count[SESSION.problemIds[0]];
+  const r12 = validateRemoteState(bad12);
+  if (r12.valid) fail("comparison_count missing required pid accepted", r12);
+  else log("Case 12 PASS — incomplete comparison_count rejected:", r12.reason);
+
+  // Case 13: theta value not finite → expect valid:false.
+  const bad13 = buildValidPayload();
+  bad13.states[SESSION.criterionOrder[0]].theta[SESSION.problemIds[0]] = NaN;
+  const r13 = validateRemoteState(bad13);
+  if (r13.valid) fail("non-finite theta accepted", r13);
+  else log("Case 13 PASS — non-finite theta rejected:", r13.reason);
+
+  // Case 14: bad outcome value → expect valid:false.
+  const bad14 = buildValidPayload();
+  bad14.states[SESSION.criterionOrder[0]].history.push({
+    a_id: SESSION.problemIds[0], b_id: SESSION.problemIds[1], outcome: "draw", ts: "x"
+  });
+  const r14 = validateRemoteState(bad14);
+  if (r14.valid) fail("bad outcome accepted", r14);
+  else log("Case 14 PASS — bad outcome rejected:", r14.reason);
+
+  // Case 15: rater_name too long → expect valid:false.
+  const bad15 = buildValidPayload();
+  bad15.rater_name = "x".repeat(MAX_RATER_NAME_LEN + 1);
+  const r15 = validateRemoteState(bad15);
+  if (r15.valid) fail("oversized rater_name accepted", r15);
+  else log("Case 15 PASS — oversized rater_name rejected:", r15.reason);
+
+  if (verbose) console.log("[validateRemoteState] all 15 smoke tests passed");
 })();
 
 function saveToLocalStorage() {
