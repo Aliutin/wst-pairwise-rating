@@ -254,11 +254,18 @@ body {
     <h3>Pair resolution status (this criterion)</h3>
     <div id="pair-list"></div>
   </div>
+  <div id="prior-footer" style="max-width:1100px; margin:24px auto 32px; padding:0 24px; font-size:11px; color:#888; line-height:1.5; text-align:center;">
+    Live confidence reflects sequential Bayesian updating: your original
+    posterior (Davidson Bradley-Terry, ~159 prior comparisons across criteria)
+    plus the new comparisons recorded here. Final paper numbers come from the
+    offline Davidson refit on the union of raw original and top-up comparisons.
+  </div>
 </div>
 
 <div id="name-prompt">
   <h2>WST rating game — adaptive top-up</h2>
-  <p>You'll re-rate a small pool of pairs that were flagged as the most uncertain in your previous session. After each comparison we refit a quick Bradley-Terry model in your browser and stop asking about pairs whose ordering becomes confident enough. The whole task takes 10–25 minutes.</p>
+  <p>You'll re-rate a small pool of pairs that were flagged as the most uncertain in your previous session. After each comparison we refit a quick Davidson Bradley-Terry model in your browser, conditioned on your original posterior, and stop asking about pairs whose ordering becomes confident enough. The whole task takes 10–25 minutes.</p>
+  <p id="prior-summary" style="font-size:13px; color:#555;"></p>
   <p>Your progress autosaves every comparison — you can pause and reopen anytime, including from a different device.</p>
 
   <div class="welcome-section">
@@ -361,18 +368,205 @@ body {
     return { inv: null, jitter: j };
   }
 
-  // ---- Bradley-Terry MAP fit ----
-  // Inputs:
-  //   n_items
-  //   pair_counts: array of {i, j, w_i, w_j} with i<j (unordered key); ties already
-  //     split into 0.5 contributions to both w_i and w_j.
-  //   sigma:  Gaussian prior std on theta (theta ~ N(0, sigma^2 I)).
-  //   opts: { maxIter, tol }
-  // Returns: { theta, hessian, iters, converged, gradInf }
+  // ---- Davidson-tie BT log-likelihood (per-comparison form) ----
+  // comparisons: array of { i, j, outcome } where outcome ∈ {"a","b","tie"};
+  //   "a" means item i won (the comparison's a_id maps to index i),
+  //   "b" means item j won, "tie" means equal.
+  // theta: array of strengths.
+  // nu: Davidson tie parameter (fixed; not refit in the browser).
   //
+  // For each comparison: P(i wins) = exp(t_i) / D, P(j wins) = exp(t_j) / D,
+  //   P(tie) = nu * exp((t_i + t_j)/2) / D, where
+  //   D = exp(t_i) + exp(t_j) + nu * exp((t_i + t_j)/2).
+  function davidsonNll(theta, comparisons, nu) {
+    if (nu <= 0) {
+      // Fall back to plain BT half-credit ties (tie probability = 0).
+      let nll = 0;
+      for (const c of comparisons) {
+        const ti = theta[c.i], tj = theta[c.j];
+        const m = Math.max(ti, tj);
+        const lse = m + Math.log(Math.exp(ti - m) + Math.exp(tj - m));
+        if (c.outcome === "a") nll -= (ti - lse);
+        else if (c.outcome === "b") nll -= (tj - lse);
+        else nll -= 0.5 * (ti - lse) + 0.5 * (tj - lse);
+      }
+      return nll;
+    }
+    const log_nu = Math.log(nu);
+    let nll = 0;
+    for (const c of comparisons) {
+      const ti = theta[c.i], tj = theta[c.j];
+      const half = 0.5 * (ti + tj);
+      const a = ti, b = tj, cc = half + log_nu;
+      const m = Math.max(a, Math.max(b, cc));
+      const log_denom = m + Math.log(Math.exp(a - m) + Math.exp(b - m) + Math.exp(cc - m));
+      if (c.outcome === "a") nll -= (ti - log_denom);
+      else if (c.outcome === "b") nll -= (tj - log_denom);
+      else nll -= (cc - log_denom);
+    }
+    return nll;
+  }
+
+  // Analytic gradient of Davidson NLL over theta only (nu fixed).
+  // Per pair (i,j) with outcomes y_a (1 if a won), y_b (1 if b won), y_t (1 if tie):
+  //   d NLL / d theta_i = -y_a - 0.5*y_t + (P_i + 0.5*P_t)
+  //   d NLL / d theta_j = -y_b - 0.5*y_t + (P_j + 0.5*P_t)
+  // (Per-comparison; aggregate over comparisons.)
+  function davidsonGrad(theta, comparisons, nu) {
+    const n = theta.length;
+    const grad = new Array(n).fill(0);
+    if (nu <= 0) {
+      for (const c of comparisons) {
+        const ti = theta[c.i], tj = theta[c.j];
+        const m = Math.max(ti, tj);
+        const ea = Math.exp(ti - m), eb = Math.exp(tj - m);
+        const D = ea + eb;
+        const pi = ea / D, pj = eb / D;
+        const ya = c.outcome === "a" ? 1 : 0;
+        const yb = c.outcome === "b" ? 1 : 0;
+        const yt = c.outcome === "tie" ? 1 : 0;
+        grad[c.i] += -(ya + 0.5 * yt) + (pi + 0.5 * yt);  // pure-BT: tie → half credit
+        grad[c.j] += -(yb + 0.5 * yt) + (pj + 0.5 * yt);
+      }
+      return grad;
+    }
+    const log_nu = Math.log(nu);
+    for (const c of comparisons) {
+      const ti = theta[c.i], tj = theta[c.j];
+      const half = 0.5 * (ti + tj);
+      const a = ti, b = tj, cc = half + log_nu;
+      const m = Math.max(a, Math.max(b, cc));
+      const ea = Math.exp(a - m), eb = Math.exp(b - m), ec = Math.exp(cc - m);
+      const D = ea + eb + ec;
+      const pi = ea / D, pj = eb / D, pt = ec / D;
+      const ya = c.outcome === "a" ? 1 : 0;
+      const yb = c.outcome === "b" ? 1 : 0;
+      const yt = c.outcome === "tie" ? 1 : 0;
+      grad[c.i] += -(ya + 0.5 * yt) + (pi + 0.5 * pt);
+      grad[c.j] += -(yb + 0.5 * yt) + (pj + 0.5 * pt);
+    }
+    return grad;
+  }
+
+  // Hessian via central finite differences on the analytic gradient.
+  // Cheap because n <= 14: 2n gradient evaluations.
+  function davidsonHessFD(theta, comparisons, nu, eps) {
+    eps = eps || 1e-5;
+    const n = theta.length;
+    const H = [];
+    for (let i = 0; i < n; i++) H.push(new Array(n).fill(0));
+    for (let k = 0; k < n; k++) {
+      const tp = theta.slice(); tp[k] += eps;
+      const tm = theta.slice(); tm[k] -= eps;
+      const gp = davidsonGrad(tp, comparisons, nu);
+      const gm = davidsonGrad(tm, comparisons, nu);
+      for (let r = 0; r < n; r++) {
+        H[r][k] = (gp[r] - gm[r]) / (2 * eps);
+      }
+    }
+    // Symmetrize.
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const m = 0.5 * (H[i][j] + H[j][i]);
+        H[i][j] = m; H[j][i] = m;
+      }
+    }
+    return H;
+  }
+
+  // ---- Davidson-MAP fit with informative Gaussian prior ----
+  // posterior: ll(theta) - 0.5 * (theta - mu)^T P (theta - mu)
+  // (so NLP = davidsonNll + 0.5 * (theta - mu)^T P (theta - mu))
+  // Returns { theta, hessian, iters, converged, gradInf }.
+  // No mean-recentering: the informative prior anchors location.
+  function davidsonMapFit(n_items, comparisons, nu, prior, opts) {
+    opts = opts || {};
+    const maxIter = opts.maxIter || 30;
+    const tol = opts.tol || 1e-6;
+    const dampMaxStep = opts.maxStep || 1.0;
+    // prior: { mean: [n], precision: [n][n] } (precision can be all zeros for
+    // the no-prior case; that's a flat prior).
+    const mu = prior.mean.slice();
+    const P = prior.precision;
+
+    function priorPart(theta) {
+      // Returns { grad, hess (=P), nlp_addend }.
+      const n = theta.length;
+      const d = new Array(n);
+      for (let i = 0; i < n; i++) d[i] = theta[i] - mu[i];
+      const grad = new Array(n).fill(0);
+      let nlp = 0;
+      for (let i = 0; i < n; i++) {
+        let row = 0;
+        for (let j = 0; j < n; j++) row += P[i][j] * d[j];
+        grad[i] = row;
+        nlp += 0.5 * d[i] * row;
+      }
+      return { grad: grad, nlp: nlp };
+    }
+
+    function compute(theta) {
+      const grad = davidsonGrad(theta, comparisons, nu);
+      const ll = davidsonNll(theta, comparisons, nu);
+      const pp = priorPart(theta);
+      for (let i = 0; i < n_items; i++) grad[i] += pp.grad[i];
+      const dataHess = davidsonHessFD(theta, comparisons, nu, 1e-5);
+      const hess = [];
+      for (let i = 0; i < n_items; i++) {
+        const row = new Array(n_items).fill(0);
+        for (let j = 0; j < n_items; j++) row[j] = dataHess[i][j] + P[i][j];
+        hess.push(row);
+      }
+      return { grad: grad, hess: hess, nlp: ll + pp.nlp };
+    }
+
+    // Initialize at prior mean.
+    const theta = mu.slice();
+    let lastGradInf = Infinity;
+    let iters = 0;
+    let converged = false;
+
+    for (let it = 0; it < maxIter; it++) {
+      iters = it + 1;
+      const c = compute(theta);
+      let gInf = 0;
+      for (let k = 0; k < n_items; k++) gInf = Math.max(gInf, Math.abs(c.grad[k]));
+      lastGradInf = gInf;
+      if (gInf < tol) { converged = true; break; }
+      const negG = c.grad.map(g => -g);
+      const inv = matInvWithJitter(c.hess);
+      if (!inv.inv) {
+        for (let k = 0; k < n_items; k++) theta[k] -= 0.05 * c.grad[k];
+      } else {
+        const delta = new Array(n_items).fill(0);
+        for (let r = 0; r < n_items; r++) {
+          let s = 0;
+          for (let cc = 0; cc < n_items; cc++) s += inv.inv[r][cc] * negG[cc];
+          delta[r] = s;
+        }
+        let mx = 0;
+        for (let k = 0; k < n_items; k++) mx = Math.max(mx, Math.abs(delta[k]));
+        const scale = mx > dampMaxStep ? (dampMaxStep / mx) : 1.0;
+        for (let k = 0; k < n_items; k++) theta[k] += scale * delta[k];
+      }
+      // INTENTIONAL: do NOT recenter; the informative prior anchors location.
+    }
+    const final = compute(theta);
+    return {
+      theta: theta,
+      hessian: final.hess,
+      iters: iters,
+      converged: converged,
+      gradInf: lastGradInf,
+      nlp: final.nlp,
+    };
+  }
+
+  // ---- Legacy plain-BT MAP fit (kept for reference + tests) ----
   // NLP(theta) = sum_pairs [ N_ij * log(exp(t_i) + exp(t_j)) - w_i * t_i - w_j * t_j ]
   //              + (1/(2 sigma^2)) * sum theta_k^2
   // Re-centered to zero mean after each Newton step (translation invariance).
+  // Used only by the math self-tests; the live UI uses davidsonMapFit.
   function btFit(n_items, pair_counts, sigma, opts) {
     opts = opts || {};
     const maxIter = opts.maxIter || 30;
@@ -469,7 +663,26 @@ body {
     };
   }
 
-  // Posterior covariance via Hessian inverse (with sum-to-zero projection).
+  // Posterior covariance for informative-prior case: just H^{-1}, no projection.
+  // The informative prior makes H full-rank in the unconstrained theta space.
+  function laplaceCovDirect(hessian) {
+    const r = matInvWithJitter(hessian);
+    if (!r.inv) return null;
+    const n = hessian.length;
+    const Sigma = [];
+    for (let i = 0; i < n; i++) Sigma.push(r.inv[i].slice());
+    // Symmetrize.
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const m = 0.5 * (Sigma[i][j] + Sigma[j][i]);
+        Sigma[i][j] = m; Sigma[j][i] = m;
+      }
+    }
+    return Sigma;
+  }
+
+  // Legacy: posterior covariance via Hessian inverse with sum-to-zero projection
+  // (for the flat-prior plain-BT case used only by self-tests).
   // Returns Sigma (n x n). Adds jitter on instability.
   function laplaceCov(hessian) {
     const n = hessian.length;
@@ -532,8 +745,13 @@ body {
     matInvWithJitter: matInvWithJitter,
     btFit: btFit,
     laplaceCov: laplaceCov,
+    laplaceCovDirect: laplaceCovDirect,
     probABetter: probABetter,
     diffVar: diffVar,
+    davidsonNll: davidsonNll,
+    davidsonGrad: davidsonGrad,
+    davidsonHessFD: davidsonHessFD,
+    davidsonMapFit: davidsonMapFit,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 </script>
@@ -597,6 +815,82 @@ body {
     check("T4 threshold check", Math.max(p, 1 - p) >= threshold, { p: p });
   }
 
+  // --- Test 5: informative prior with zero comparisons → MAP equals prior mean.
+  // mu=[1, 0], precision = 10*I, no comparisons, nu=0.2.
+  {
+    const prior = {
+      mean: [1.0, 0.0],
+      precision: [[10, 0], [0, 10]],
+    };
+    const r = M.davidsonMapFit(2, [], 0.2, prior, { maxIter: 30 });
+    check("T5 prior-only MAP=mu[0]", Math.abs(r.theta[0] - 1.0) < 1e-3, r.theta);
+    check("T5 prior-only MAP=mu[1]", Math.abs(r.theta[1] - 0.0) < 1e-3, r.theta);
+    check("T5 prior-only converges", r.converged, { iters: r.iters, gradInf: r.gradInf });
+  }
+
+  // --- Test 6: Davidson with very small nu reduces to plain BT (data-only).
+  // 5/0 wins for item 0 vs item 1; weak prior; nu=0.001. Compare to plain BT MAP.
+  {
+    const prior = {
+      mean: [0, 0],
+      precision: [[0.25, 0], [0, 0.25]],   // sigma=2 → 1/sigma^2 = 0.25
+    };
+    const comps = [
+      { i: 0, j: 1, outcome: "a" },
+      { i: 0, j: 1, outcome: "a" },
+      { i: 0, j: 1, outcome: "a" },
+      { i: 0, j: 1, outcome: "a" },
+      { i: 0, j: 1, outcome: "a" },
+    ];
+    const rDavid = M.davidsonMapFit(2, comps, 0.001, prior, { maxIter: 30 });
+    // Plain BT path: same data, weak prior implemented via btFit with sigma=2.
+    const pcBT = [{ i: 0, j: 1, w_i: 5, w_j: 0 }];
+    const rBT = M.btFit(2, pcBT, 2.0, { maxIter: 30 });
+    // BT recenters; compute the difference theta[0]-theta[1] in both, compare.
+    const dD = rDavid.theta[0] - rDavid.theta[1];
+    const dB = rBT.theta[0] - rBT.theta[1];
+    check("T6 Davidson(nu→0)≈BT in difference", Math.abs(dD - dB) < 0.05,
+          { davidson_diff: dD, bt_diff: dB });
+  }
+
+  // --- Test 7: Tie probability is symmetric. theta=[0,0], nu=1, comparisons
+  // 1A, 1B, 1tie, weak prior → MAP should remain symmetric around prior mean.
+  {
+    const prior = {
+      mean: [0, 0],
+      precision: [[0.25, 0], [0, 0.25]],
+    };
+    const comps = [
+      { i: 0, j: 1, outcome: "a" },
+      { i: 0, j: 1, outcome: "b" },
+      { i: 0, j: 1, outcome: "tie" },
+    ];
+    const r = M.davidsonMapFit(2, comps, 1.0, prior, { maxIter: 30 });
+    check("T7 symmetric outcomes → |theta_a|<0.05", Math.abs(r.theta[0]) < 0.05, r.theta);
+    check("T7 symmetric outcomes → |theta_b|<0.05", Math.abs(r.theta[1]) < 0.05, r.theta);
+  }
+
+  // --- Test 8: prior strength controls update magnitude. Same single comparison;
+  //   sharp prior (precision=100*I) → tiny move; weak prior (precision=0.01*I) → large move.
+  {
+    const compsOne = [{ i: 0, j: 1, outcome: "a" }];
+    const sharp = {
+      mean: [0, 0],
+      precision: [[100, 0], [0, 100]],
+    };
+    const weak = {
+      mean: [0, 0],
+      precision: [[0.01, 0], [0, 0.01]],
+    };
+    const rs = M.davidsonMapFit(2, compsOne, 0.2, sharp, { maxIter: 30 });
+    const rw = M.davidsonMapFit(2, compsOne, 0.2, weak, { maxIter: 30 });
+    const ds = Math.abs(rs.theta[0] - rs.theta[1]);
+    const dw = Math.abs(rw.theta[0] - rw.theta[1]);
+    check("T8 sharp prior barely moves", ds < 0.05, { sharp_diff: ds });
+    check("T8 weak prior moves more", dw > 0.5, { weak_diff: dw });
+    check("T8 weak >> sharp", dw > ds * 5, { ratio: dw / Math.max(ds, 1e-6) });
+  }
+
   if (failed > 0) {
     console.error("[math self-test] " + failed + " assertion(s) FAILED");
   } else if (verbose) {
@@ -614,6 +908,7 @@ const DATA = {
   "is_topup_mode_adaptive": true,
   "rater_default": "lutir",
   "source_targeted_pairs_file": "targeted_pairs_v2.json",
+  "source_refit_file": "refit.json",
   "confidence_threshold": 0.85,
   "max_comparisons_per_criterion": 30,
   "problems": [
@@ -862,6 +1157,446 @@ const DATA = {
       }
     }
   ],
+  "prior": {
+    "observability": {
+      "pids": [
+        "contractor_fraud",
+        "electricity_supply_problems",
+        "high_cost",
+        "installation_problems",
+        "lack_of_training",
+        "not_sufficient_yield_profit",
+        "soil_climate_unsuitability",
+        "water_schedule_mismatch",
+        "water_source_unavailability"
+      ],
+      "theta": {
+        "contractor_fraud": 0.4910840651618148,
+        "electricity_supply_problems": -1.1915177576785028,
+        "high_cost": -3.3714240724570863,
+        "installation_problems": -0.11625354993142772,
+        "lack_of_training": 0.35714389614431885,
+        "not_sufficient_yield_profit": -1.6152025305486462,
+        "soil_climate_unsuitability": 0.001295733977775132,
+        "water_schedule_mismatch": 0.8054524361319684,
+        "water_source_unavailability": 0.11303031915250805
+      },
+      "precision": [
+        [
+          2.84094582549274,
+          0.19207915685563864,
+          0.45913003820475995,
+          0.056687578588537915,
+          0.10344216167418274,
+          0.2894622787504259,
+          -0.335925117316371,
+          0.3462616751692392,
+          0.11396344857783121
+        ],
+        [
+          0.19207915685563862,
+          2.390077435704508,
+          -0.15780640940120297,
+          0.06460058346350335,
+          -0.2118967158251444,
+          -0.035103558150875624,
+          0.22213671237658128,
+          0.3413555678179865,
+          -0.2678244466761864
+        ],
+        [
+          0.4591300382047599,
+          -0.157806409401203,
+          1.8915678350453675,
+          0.2637210340732785,
+          0.2610998833733693,
+          -0.25856281447040774,
+          0.26287850480285946,
+          0.4858550439599071,
+          0.27471613474719586
+        ],
+        [
+          0.05668757858853788,
+          0.06460058346350334,
+          0.2637210340732785,
+          2.2384399632915413,
+          0.24206081389291723,
+          -0.21997918314509535,
+          0.20709777769407423,
+          0.0933513578829334,
+          0.02412549502420019
+        ],
+        [
+          0.10344216167418273,
+          -0.21189671582514433,
+          0.26109988337336926,
+          0.24206081389291723,
+          1.7271341646793348,
+          0.07263599175281325,
+          -0.20602350983227308,
+          0.33922225611864115,
+          0.20077354353066043
+        ],
+        [
+          0.2894622787504259,
+          -0.03510355815087562,
+          -0.25856281447040774,
+          -0.2199791831450953,
+          0.07263599175281328,
+          2.2958283605470453,
+          0.05688262741788659,
+          0.3058128630101234,
+          -0.3214741010666502
+        ],
+        [
+          -0.335925117316371,
+          0.2221367123765812,
+          0.26287850480285946,
+          0.20709777769407423,
+          -0.2060235098322731,
+          0.0568826274178866,
+          3.439218104043509,
+          -0.4710028133742673,
+          -0.43284339118638226
+        ],
+        [
+          0.34626167516923917,
+          0.3413555678179865,
+          0.48585504395990714,
+          0.0933513578829334,
+          0.3392222561186412,
+          0.3058128630101233,
+          -0.4710028133742673,
+          2.6972383823979116,
+          0.14361009482958434
+        ],
+        [
+          0.11396344857783118,
+          -0.2678244466761864,
+          0.2747161347471958,
+          0.024125495024200194,
+          0.20077354353066046,
+          -0.3214741010666502,
+          -0.4328433911863822,
+          0.14361009482958434,
+          2.8259150139866036
+        ]
+      ],
+      "nu": 0.26131734047576133,
+      "n_effective": 78,
+      "used_pinv": false,
+      "diag_only": false,
+      "condition_number": 3.5512270552409335
+    },
+    "solvability": {
+      "pids": [
+        "contractor_fraud",
+        "electricity_supply_problems",
+        "equipment_malfunction",
+        "forced_adoption",
+        "installation_problems",
+        "lack_of_training",
+        "soil_climate_unsuitability",
+        "subsidy_delay_or_nonpayment",
+        "water_schedule_mismatch"
+      ],
+      "theta": {
+        "contractor_fraud": -0.1605672735312056,
+        "electricity_supply_problems": 1.0504117074953465,
+        "equipment_malfunction": -0.7794937755655593,
+        "forced_adoption": 0.9998137681734613,
+        "installation_problems": -0.18042423175159905,
+        "lack_of_training": -2.3610638252152722,
+        "soil_climate_unsuitability": -1.4028949152368329,
+        "subsidy_delay_or_nonpayment": -3.834609151419781,
+        "water_schedule_mismatch": -0.5110929932222882
+      },
+      "precision": [
+        [
+          3.5274704869550493,
+          -0.41672006811197554,
+          -0.4369026206984385,
+          0.3060420858193033,
+          -0.47368892748123875,
+          0.1809974679526734,
+          0.19037120169871016,
+          0.1513645085178329,
+          -0.5038204695816006
+        ],
+        [
+          -0.4167200681119755,
+          2.0743846526585346,
+          0.1220076808624216,
+          0.3518793791011059,
+          0.1143435577031343,
+          0.19784351479969103,
+          0.269416948801651,
+          0.22332242825964935,
+          0.07400839014210739
+        ],
+        [
+          -0.4369026206984383,
+          0.12200768086242157,
+          2.501438781359533,
+          -0.1103619309297106,
+          0.21532685446398359,
+          0.036733502964474606,
+          0.0019369879289230893,
+          0.16085557616797627,
+          -0.3057460557922455
+        ],
+        [
+          0.30604208581930337,
+          0.3518793791011059,
+          -0.1103619309297106,
+          1.8386089083736785,
+          0.14903769993599605,
+          0.22889703680502566,
+          0.29785867039152814,
+          0.25287050695579794,
+          0.09835732417624639
+        ],
+        [
+          -0.4736889274812387,
+          0.11434355770313431,
+          0.21532685446398359,
+          0.14903769993599605,
+          2.50483655952978,
+          0.21559775865361455,
+          0.2651751591632759,
+          0.16967785534070282,
+          -0.49607386698888817
+        ],
+        [
+          0.1809974679526734,
+          0.19784351479969095,
+          0.03673350296447461,
+          0.22889703680502546,
+          0.21559775865361447,
+          1.955176249765334,
+          -0.4243544144751009,
+          -0.4482130387477015,
+          0.14908633551262382
+        ],
+        [
+          0.1903712016987102,
+          0.269416948801651,
+          0.001936987928923102,
+          0.29785867039152814,
+          0.2651751591632759,
+          -0.42435441447510086,
+          2.233255794408951,
+          0.17075565973847878,
+          -0.40510216843959274
+        ],
+        [
+          0.15136450851783298,
+          0.22332242825964935,
+          0.1608555761679763,
+          0.25287050695579805,
+          0.16967785534070282,
+          -0.4482130387477016,
+          0.1707556597384788,
+          1.1070876830667193,
+          0.1368446410725736
+        ],
+        [
+          -0.5038204695816006,
+          0.07400839014210742,
+          -0.3057460557922455,
+          0.0983573241762464,
+          -0.4960738669888882,
+          0.1490863355126238,
+          -0.4051021684395927,
+          0.13684464107257366,
+          3.089519563155616
+        ]
+      ],
+      "nu": 0.1332230334529392,
+      "n_effective": 69,
+      "used_pinv": false,
+      "diag_only": false,
+      "condition_number": 6.114240815486434
+    },
+    "donor_pressure": {
+      "pids": [
+        "contractor_fraud",
+        "electricity_supply_problems",
+        "equipment_malfunction",
+        "forced_adoption",
+        "high_cost",
+        "installation_problems",
+        "lack_of_training",
+        "not_sufficient_yield_profit",
+        "soil_climate_unsuitability",
+        "subsidy_delay_or_nonpayment",
+        "water_source_unavailability"
+      ],
+      "theta": {
+        "contractor_fraud": 1.4052342879804645,
+        "electricity_supply_problems": -0.7136994128755599,
+        "equipment_malfunction": 0.12437296302836387,
+        "forced_adoption": 3.0321917432486796,
+        "high_cost": 0.18144047354754703,
+        "installation_problems": 0.2769267649975245,
+        "lack_of_training": 0.1600044309291256,
+        "not_sufficient_yield_profit": -1.1425195834846802,
+        "soil_climate_unsuitability": -2.7234288225417127,
+        "subsidy_delay_or_nonpayment": 2.1405618867641807,
+        "water_source_unavailability": -2.333718411175643
+      },
+      "precision": [
+        [
+          3.4123792142868674,
+          0.18984722502222454,
+          -0.16899379504053721,
+          -0.05367013795057157,
+          -0.33784649962816005,
+          -0.13603788468700617,
+          0.18953764615239477,
+          0.3850392271651292,
+          0.4531440445280064,
+          0.1715995816051848,
+          0.4973275395407658
+        ],
+        [
+          0.1898472250222245,
+          3.032606915646856,
+          -0.22357791278565167,
+          0.5762411644642822,
+          0.2025956003923032,
+          0.04754179432798063,
+          0.014857073027506081,
+          0.19172123692289167,
+          0.4963637082267138,
+          0.4479784536589469,
+          0.38446443060127033
+        ],
+        [
+          -0.1689937950405372,
+          -0.2235779127856518,
+          3.3193984589149816,
+          0.4406639536112865,
+          -0.6002034736466059,
+          0.16619795933623585,
+          0.35731258805672633,
+          0.21849394660401722,
+          0.3950500688806198,
+          0.27819980145708784,
+          0.4192543873476166
+        ],
+        [
+          -0.053670137950571586,
+          0.5762411644642822,
+          0.4406639536112866,
+          2.256181554678891,
+          0.518386615808754,
+          0.6010390280897757,
+          0.46795986301084797,
+          0.5774031899150086,
+          0.6783349293665976,
+          0.10625980728339021,
+          0.7376929599084978
+        ],
+        [
+          -0.33784649962816005,
+          0.20259560039230326,
+          -0.6002034736466061,
+          0.5183866158087541,
+          3.728717357185191,
+          -0.2882921601546673,
+          0.3731355558056256,
+          0.24138952788813153,
+          0.30306497441204205,
+          0.18405287412025204,
+          0.5076730079334703
+        ],
+        [
+          -0.13603788468700626,
+          0.04754179432798064,
+          0.16619795933623585,
+          0.6010390280897755,
+          -0.28829216015466735,
+          3.085784257782366,
+          0.19894125419030384,
+          0.4289909385214271,
+          0.5156004813396753,
+          0.4672143370732733,
+          0.5333462302616057
+        ],
+        [
+          0.18953764615239482,
+          0.014857073027506102,
+          0.3573125880567263,
+          0.467959863010848,
+          0.3731355558056255,
+          0.19894125419030392,
+          2.1633462055435686,
+          0.2539128951640662,
+          0.4770741148110334,
+          -0.018245342516651712,
+          0.52485521494845
+        ],
+        [
+          0.3850392271651292,
+          0.19172123692289167,
+          0.21849394660401716,
+          0.5774031899150086,
+          0.24138952788813145,
+          0.42899093852142717,
+          0.2539128951640662,
+          2.63924115145553,
+          0.2216180454003824,
+          0.41025835012304185,
+          -0.16943136630992467
+        ],
+        [
+          0.45314404452800644,
+          0.4963637082267137,
+          0.3950500688806198,
+          0.6783349293665977,
+          0.30306497441204205,
+          0.5156004813396755,
+          0.47707411481103346,
+          0.22161804540038246,
+          2.1162824844691217,
+          0.5272734848388092,
+          0.12272138163891816
+        ],
+        [
+          0.17159958160518482,
+          0.4479784536589468,
+          0.2781998014570879,
+          0.10625980728339013,
+          0.184052874120252,
+          0.46721433707327326,
+          -0.018245342516651684,
+          0.4102583501230419,
+          0.5272734848388092,
+          2.211396782527366,
+          0.5786524766506003
+        ],
+        [
+          0.4973275395407658,
+          0.3844644306012703,
+          0.4192543873476166,
+          0.7376929599084977,
+          0.5076730079334703,
+          0.5333462302616058,
+          0.52485521494845,
+          -0.1694313663099246,
+          0.12272138163891814,
+          0.5786524766506003,
+          2.7919606915629847
+        ]
+      ],
+      "nu": 0.11395162963062433,
+      "n_effective": 84,
+      "used_pinv": false,
+      "diag_only": false,
+      "condition_number": 6.708547663050288
+    }
+  },
   "criteria": [
     {
       "key": "observability",
@@ -1126,38 +1861,68 @@ TOPUP.current_criterion = DATA.criteria[0] ? DATA.criteria[0].key : null;
 
 function refitCurrent(critKey) {
   const st = TOPUP.by_criterion[critKey];
-  // Items appearing in the pool.
-  const pidSet = new Set();
-  for (const p of st.pool) { pidSet.add(p.a); pidSet.add(p.b); }
-  const pids = Array.from(pidSet).sort();
+  // Item ordering: prefer the prior's pids (sorted, fixed at build time) when
+  // available so prior_mean / prior_precision align by index. Fall back to
+  // pool-derived sorted pids otherwise (no-prior path).
+  const priorBlock = (DATA.prior && DATA.prior[critKey]) ? DATA.prior[critKey] : null;
+  let pids;
+  if (priorBlock) {
+    pids = priorBlock.pids.slice();
+  } else {
+    const pidSet = new Set();
+    for (const p of st.pool) { pidSet.add(p.a); pidSet.add(p.b); }
+    pids = Array.from(pidSet).sort();
+  }
   const idx = {}; pids.forEach((p, i) => { idx[p] = i; });
   const n = pids.length;
 
-  // Aggregate counts from comparisons (ties contribute 0.5 to both).
-  const pairAgg = {};
+  // Build Davidson-format comparison list (only those whose items are in pids).
+  const comparisons = [];
   for (const c of st.comparisons) {
     if (!(c.a_id in idx) || !(c.b_id in idx)) continue;
-    let i = idx[c.a_id], j = idx[c.b_id];
-    let flip = false;
-    if (i > j) { const t = i; i = j; j = t; flip = true; }
-    const key = i + "_" + j;
-    if (!(key in pairAgg)) pairAgg[key] = { i: i, j: j, w_i: 0, w_j: 0 };
-    if (c.outcome === "tie") {
-      pairAgg[key].w_i += 0.5;
-      pairAgg[key].w_j += 0.5;
-    } else if (c.outcome === "a") {
-      // a won. After potential flip, a maps to: if !flip then i, else j.
-      if (!flip) pairAgg[key].w_i += 1; else pairAgg[key].w_j += 1;
-    } else if (c.outcome === "b") {
-      if (!flip) pairAgg[key].w_j += 1; else pairAgg[key].w_i += 1;
-    }
+    comparisons.push({
+      i: idx[c.a_id],
+      j: idx[c.b_id],
+      outcome: c.outcome,  // "a" / "b" / "tie"
+    });
   }
-  const pair_counts = Object.values(pairAgg);
 
   st.fit.pids = pids;
-  if (st.comparisons.length === 0 || n === 0) {
-    // Pre-fit: theta = 0, Sigma = sigma^2 * I (the prior). Mark unavailable so
-    // selection falls back to build-time p_a_beats_b proximity to 0.5.
+
+  const M = globalThis.WSTMath;
+
+  if (n === 0) {
+    st.fit.theta = [];
+    st.fit.Sigma = null;
+    st.fit.iters = 0;
+    st.fit.converged = false;
+    st.fit.available = false;
+    return;
+  }
+
+  if (priorBlock) {
+    // Build prior in pids order. priorBlock.pids was already in sorted order
+    // matching `pids` above.
+    const mu = pids.map(p => priorBlock.theta[p]);
+    const P = priorBlock.precision; // n x n, already in pids order
+    const nu = priorBlock.nu;
+    const r = M.davidsonMapFit(
+      n, comparisons, nu,
+      { mean: mu, precision: P },
+      { maxIter: 30, tol: 1e-6, maxStep: 1.0 },
+    );
+    const Sigma = M.laplaceCovDirect(r.hessian);
+    st.fit.theta = r.theta;
+    st.fit.Sigma = Sigma;
+    st.fit.iters = r.iters;
+    st.fit.converged = r.converged;
+    st.fit.available = true;
+    st.fit.nu = nu;
+    return;
+  }
+
+  // No-prior fallback (preserves the historical behaviour for builds without a prior).
+  if (comparisons.length === 0) {
     st.fit.theta = new Array(n).fill(0);
     const sigma = 2.0, sigma2 = sigma * sigma;
     const Sigma = [];
@@ -1166,7 +1931,6 @@ function refitCurrent(critKey) {
       row[i] = sigma2;
       Sigma.push(row);
     }
-    // Project to sum-to-zero: var(theta_i - theta_j) = 2 * sigma2.
     st.fit.Sigma = Sigma;
     st.fit.iters = 0;
     st.fit.converged = false;
@@ -1174,7 +1938,25 @@ function refitCurrent(critKey) {
     return;
   }
 
-  const M = globalThis.WSTMath;
+  // Aggregate counts from comparisons for plain BT fallback.
+  const pairAgg = {};
+  for (const c of comparisons) {
+    let i = c.i, j = c.j;
+    let flip = false;
+    if (i > j) { const t = i; i = j; j = t; flip = true; }
+    const key = i + "_" + j;
+    if (!(key in pairAgg)) pairAgg[key] = { i: i, j: j, w_i: 0, w_j: 0 };
+    if (c.outcome === "tie") {
+      pairAgg[key].w_i += 0.5;
+      pairAgg[key].w_j += 0.5;
+    } else if (c.outcome === "a") {
+      if (!flip) pairAgg[key].w_i += 1; else pairAgg[key].w_j += 1;
+    } else if (c.outcome === "b") {
+      if (!flip) pairAgg[key].w_j += 1; else pairAgg[key].w_i += 1;
+    }
+  }
+  const pair_counts = Object.values(pairAgg);
+
   const r = M.btFit(n, pair_counts, 2.0, { maxIter: 30, tol: 1e-6, maxStep: 1.0 });
   const Sigma = M.laplaceCov(r.hessian);
   st.fit.theta = r.theta;
@@ -1460,6 +2242,21 @@ console.assert(typeof DATA.candidate_pool === "object", "candidate_pool must be 
 console.assert(typeof DATA.confidence_threshold === "number", "confidence_threshold must be number");
 console.assert(DATA.confidence_threshold > 0.5 && DATA.confidence_threshold < 1.0, "threshold must be in (0.5, 1)");
 console.assert(typeof DATA.max_comparisons_per_criterion === "number", "max_comparisons_per_criterion must be number");
+if (DATA.prior && Object.keys(DATA.prior).length > 0) {
+  for (const ck of Object.keys(DATA.prior)) {
+    const pb = DATA.prior[ck];
+    console.assert(Array.isArray(pb.pids), `prior[${ck}].pids missing`);
+    console.assert(typeof pb.theta === "object", `prior[${ck}].theta must be object`);
+    console.assert(Array.isArray(pb.precision), `prior[${ck}].precision must be array`);
+    console.assert(typeof pb.nu === "number" && pb.nu > 0, `prior[${ck}].nu must be positive number`);
+    const n = pb.pids.length;
+    console.assert(pb.precision.length === n,
+      `prior[${ck}].precision row count ${pb.precision.length} != ${n}`);
+    for (const pid of pb.pids) {
+      console.assert(pid in pb.theta, `prior[${ck}].theta missing ${pid}`);
+    }
+  }
+}
 const _problemIds = new Set(DATA.problems.map(p => p.id));
 const _critKeys = new Set(DATA.criteria.map(c => c.key));
 for (const ck of Object.keys(DATA.candidate_pool)) {
@@ -1778,7 +2575,29 @@ async function attemptResumeFromCode() {
   }
 }
 
+function renderPriorSummary() {
+  const el = document.getElementById("prior-summary");
+  if (!el) return;
+  if (!DATA.prior || Object.keys(DATA.prior).length === 0) {
+    el.textContent = "No informative prior available — starting from a weak Gaussian prior; live confidence will warm up over the first few comparisons.";
+    return;
+  }
+  const parts = [];
+  let totalN = 0;
+  for (const ck of Object.keys(DATA.prior)) {
+    const pb = DATA.prior[ck];
+    const critTitle = ((DATA.criteria.find(c => c.key === ck) || {}).title) || ck;
+    parts.push(`${critTitle}: n=${pb.n_effective}, ν=${pb.nu.toFixed(3)}`);
+    totalN += pb.n_effective;
+  }
+  el.innerHTML =
+    `Starting from your original posterior — ${parts.join(" • ")}. ` +
+    `Total prior evidence: ~${totalN} comparisons across criteria. ` +
+    `New comparisons accumulate on top; the sampler stops pairs whose P(A&gt;B) crosses ${DATA.confidence_threshold.toFixed(2)}.`;
+}
+
 function boot() {
+  renderPriorSummary();
   const prev = loadFromLocalStorage();
   const prevValid = prev && Array.isArray(Object.values(prev.by_criterion || {})[0] && Object.values(prev.by_criterion || {})[0].comparisons || null);
 
@@ -1923,6 +2742,7 @@ function buildResultsJSON(timestamp) {
     const theta = st.fit.theta;
     const fittedMap = {};
     pids.forEach((p, i) => { fittedMap[p] = theta[i]; });
+    const priorBlock = (DATA.prior && DATA.prior[c.key]) ? DATA.prior[c.key] : null;
     out.criteria[c.key] = {
       scores: {},
       ranks: [],
@@ -1932,6 +2752,16 @@ function buildResultsJSON(timestamp) {
       resolution: st.resolutions,
       confidence_threshold: DATA.confidence_threshold,
       theta_in_browser_after_fit: fittedMap,
+      prior_used: priorBlock ? {
+        criterion: c.key,
+        n_effective: priorBlock.n_effective,
+        tie_param_nu: priorBlock.nu,
+        source_refit_file: DATA.source_refit_file || "refit.json",
+        used_pinv: priorBlock.used_pinv,
+        diag_only: priorBlock.diag_only,
+        condition_number: priorBlock.condition_number,
+        prior_pids: priorBlock.pids,
+      } : null,
     };
   });
   return out;
