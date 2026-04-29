@@ -278,7 +278,7 @@ const DATA = {
     {
       "id": "equipment_malfunction",
       "label": "Equipment malfunction",
-      "definition": "Drip lines, filters, valves, or pumps break, clog, or fail during operation, often within months of installation.",
+      "definition": "Drip lines, filters, pumps, sprinkler heads breaking, clogging, or failing.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_151707",
@@ -299,7 +299,7 @@ const DATA = {
     {
       "id": "installation_problems",
       "label": "Installation problems",
-      "definition": "Poor-quality installation, incorrect setup, or contractor errors that compromise the system from day one.",
+      "definition": "Poor installation quality, incorrect setup, or contractor errors.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_54331",
@@ -320,7 +320,7 @@ const DATA = {
     {
       "id": "high_cost",
       "label": "High cost / loan burden",
-      "definition": "Equipment, maintenance, and bank loan terms are unaffordable for most farmers; the 40% subsidy still leaves heavy debt.",
+      "definition": "Farmers unable to afford WST equipment, installation, maintenance, or loan burden.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_5403",
@@ -341,7 +341,7 @@ const DATA = {
     {
       "id": "subsidy_delay_or_nonpayment",
       "label": "Subsidy delay / nonpayment",
-      "definition": "Subsidies are delayed for months or denied outright despite farmers completing installation per program rules.",
+      "definition": "Government-promised subsidies for WST installation, electricity, or operations are delayed indefinitely, denied without clear reason, or never disbursed — despite farmers having completed installation and submitted required documentation.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_11284",
@@ -362,7 +362,7 @@ const DATA = {
     {
       "id": "contractor_fraud",
       "label": "Contractor fraud",
-      "definition": "Contractors abandon installations, disappear with equipment, or misappropriate funds intended for the system.",
+      "definition": "Contractors or installation firms take payment for WST equipment/installation but abandon the project, deliver incomplete work, disappear, or misappropriate funds — leaving farmers with non-functional systems and unpaid loans.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_25827",
@@ -383,7 +383,7 @@ const DATA = {
     {
       "id": "corruption_and_fund_misuse",
       "label": "Corruption / fund misuse",
-      "definition": "Officials embezzle, inflate prices, or divert WST program funds for personal or political gain.",
+      "definition": "Officials, intermediaries, or connected firms embezzle WST subsidies, inflate equipment prices, create fake installation reports, or divert allocated funds — resulting in farmers bearing debt for technology they never received or that was never properly installed.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_81485",
@@ -404,7 +404,7 @@ const DATA = {
     {
       "id": "electricity_supply_problems",
       "label": "Electricity supply problems",
-      "definition": "Drip systems require pumps; unreliable rural electricity supply prevents systems from running on schedule.",
+      "definition": "Unreliable electricity supply — including frequent outages, disconnections due to debt, and limited power hours — prevents WST systems (pumps, drip irrigation) from operating as required, causing crop damage or system failure.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_126788",
@@ -425,7 +425,7 @@ const DATA = {
     {
       "id": "water_source_unavailability",
       "label": "Water source unavailability",
-      "definition": "There is no reliable surface or groundwater source to feed installed systems — they sit unused.",
+      "definition": "Farmers install WST systems but lack a reliable or sufficient water source (canal water not reaching fields, seasonal water shortages, insufficient well capacity) to actually operate the technology, rendering the investment useless.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_15334",
@@ -446,7 +446,7 @@ const DATA = {
     {
       "id": "water_schedule_mismatch",
       "label": "Water schedule mismatch",
-      "definition": "Canal water is delivered every 7–15 days, but drip irrigation needs water every 2–3 days; the schedules are incompatible.",
+      "definition": "Existing canal-based water delivery schedules (providing water every 7-15 days in large volumes) are incompatible with drip irrigation requirements (needing small frequent flows every 2-3 days), making WST systems impossible to operate as designed.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_151696",
@@ -459,7 +459,7 @@ const DATA = {
     {
       "id": "forced_adoption",
       "label": "Forced adoption",
-      "definition": "Officials coerce farmers into drip-irrigation contracts/loans under threat of land withdrawal, refused permits, or administrative pressure.",
+      "definition": "Local officials, hokims, or prosecutors coerce farmers into signing WST contracts, taking loans for equipment, or working with designated firms — often under threat of land seizure, penalties, or administrative pressure — regardless of farmer readiness, land suitability, or financial capacity.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_3264",
@@ -480,7 +480,7 @@ const DATA = {
     {
       "id": "lack_of_training",
       "label": "Lack of training",
-      "definition": "Farmers receive inadequate guidance on operation, scheduling, and maintenance of installed drip systems.",
+      "definition": "Farmers and local specialists lack adequate knowledge, training, or technical guidance on how to properly operate, maintain, and optimize WST systems — leading to misuse, poor results, or technology abandonment.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_5767",
@@ -501,7 +501,7 @@ const DATA = {
     {
       "id": "soil_climate_unsuitability",
       "label": "Soil / climate unsuitability",
-      "definition": "Drip is ineffective on saline, heavy clay, or extreme heat conditions — installations fail to perform regardless of farmer effort.",
+      "definition": "WST (especially drip irrigation) is ineffective or harmful when applied to saline soils, high-groundwater areas, heavy clay soils, or regions with extreme heat — causing salt accumulation, poor water penetration, or crop damage rather than intended benefits.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_4107",
@@ -522,7 +522,7 @@ const DATA = {
     {
       "id": "weed_proliferation",
       "label": "Weed proliferation",
-      "definition": "Drip systems wet only narrow root zones, leaving inter-row strips that favor weed growth and increase labor for weed control.",
+      "definition": "Drip irrigation creates favorable conditions for excessive weed growth (soil stays moist and soft without the compaction of flood irrigation), making weed control extremely difficult and labor-intensive, and significantly reducing crop yields.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_199724",
@@ -535,7 +535,7 @@ const DATA = {
     {
       "id": "not_sufficient_yield_profit",
       "label": "Insufficient yield / profit",
-      "definition": "Drip irrigation fails to deliver the promised yield or profit improvements; farmers see no economic gain from adoption.",
+      "definition": "Despite installing WST systems and following recommended practices, farmers fail to achieve the promised yield improvements or profit gains — net economic returns may be flat, lower than under traditional irrigation, or insufficient to cover the loan burden, undermining the program's central economic justification.",
       "criterion_help": {},
       "telegram_example": {
         "id": "tg_171261",
