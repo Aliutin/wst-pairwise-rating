@@ -4,6 +4,12 @@
 
 Thanks for helping rate problems related to Uzbekistan's water-saving technology (drip irrigation) program.
 
+## Two tasks
+
+- **Main 14-problem rating** (`index.html`) — pairwise comparisons across all 14 WST problems on three criteria; 30–60 minutes. This is the primary input to the BT rank surface.
+- **5-cluster validation** (`cluster_validation.html`) — short coauthor task, ~5–10 minutes, that validates whether the 5 policy-learning typology clusters are placed similarly on observability, solvability, and donor-pressure. Exactly 10 pairs per criterion, 30 comparisons total. Open at: https://aliutin.github.io/wst-pairwise-rating/cluster_validation.html
+  - This is *not* a recovery of the 14-problem ranks — it validates cluster-level typology only.
+
 ## How to use
 
 **Easiest: just open the live site link above** — no download needed.

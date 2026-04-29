@@ -1,0 +1,1222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>WST Cluster Validation</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: #f5f5f5;
+  color: #222;
+}
+#topbar {
+  position: sticky; top: 0; z-index: 10;
+  background: #fff;
+  border-bottom: 1px solid #ddd;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pill {
+  padding: 5px 11px;
+  border-radius: 14px;
+  border: 1px solid #ccc;
+  font-size: 13px;
+  font-weight: 600;
+  color: #888;
+  background: #f8f8f8;
+}
+.pill.active { background: #2c5aa0; color: #fff; border-color: #2c5aa0; }
+.pill .count { font-family: monospace; margin-left: 6px; }
+.pill.done { background: #1c5e30; color: #fff; border-color: #1c5e30; }
+#counter { margin-left: auto; font-size: 13px; color: #666; }
+#pause-btn {
+  padding: 5px 11px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+#question {
+  text-align: center;
+  font-size: 19px;
+  font-weight: 600;
+  padding: 18px 16px 8px;
+  color: #2c5aa0;
+}
+#question-help {
+  text-align: center;
+  font-size: 13px;
+  color: #666;
+  padding: 0 16px 12px;
+}
+#cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 0 20px 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+}
+.card h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  color: #2c5aa0;
+  line-height: 1.25;
+}
+.card .definition {
+  font-size: 13px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+  color: #333;
+}
+.card .includes {
+  font-size: 12.5px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+  color: #555;
+  background: #f4f6fa;
+  border-left: 3px solid #2c5aa0;
+  padding: 8px 10px;
+  border-radius: 0 4px 4px 0;
+}
+.card .includes b { color: #444; }
+.card .pick-btn {
+  margin-top: auto;
+  padding: 12px;
+  background: #2c5aa0;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.card .pick-btn:hover { background: #224a85; }
+#choice-row {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  padding: 12px 16px 24px;
+}
+#tie-btn, #back-btn {
+  padding: 10px 20px;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+#tie-btn { background: #888; }
+#tie-btn:hover { background: #666; }
+#back-btn { background: #b85; }
+#back-btn:hover { background: #a64; }
+#back-btn:disabled { background: #ddd; color: #999; cursor: not-allowed; }
+#kbd-hint { text-align: center; color: #888; font-size: 12px; padding-bottom: 14px; }
+#summary, #criterion-end, #resume-prompt, #name-prompt {
+  display: none;
+  padding: 28px 24px;
+  max-width: 880px;
+  margin: 0 auto;
+}
+#summary table, #criterion-end table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 14px;
+}
+#summary th, #summary td, #criterion-end th, #criterion-end td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+#summary th, #criterion-end th { background: #f5f5f5; font-size: 13px; }
+.action-btn {
+  padding: 10px 20px;
+  background: #2c5aa0;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  margin-right: 10px;
+}
+.action-btn.secondary { background: #888; }
+#name-prompt h2 { margin-bottom: 6px; }
+#name-prompt .lead { font-size: 14px; color: #444; line-height: 1.5; margin-bottom: 18px; }
+#name-prompt .welcome-section { margin: 16px 0; }
+#name-prompt .welcome-section h3 { margin: 0 0 6px; font-size: 15px; color: #333; }
+#name-prompt .welcome-section p { font-size: 13px; color: #555; margin: 0 0 10px; }
+#name-prompt input[type=text] {
+  padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px;
+  width: 240px; margin-right: 6px; vertical-align: middle;
+}
+#name-prompt #resume-code-input { text-transform: uppercase; letter-spacing: 2px; font-family: monospace; }
+#name-prompt .welcome-resume { padding-top: 18px; border-top: 1px solid #ddd; }
+#name-prompt #resume-code-msg { margin-top: 10px; font-size: 13px; color: #c00; min-height: 16px; }
+#session-info-bar {
+  background: #f0f6ff; padding: 6px 20px; font-size: 13px; color: #555;
+  border-bottom: 1px solid #cfd9f0; display: none;
+}
+#session-info-bar code {
+  font-weight: bold; font-size: 14px; color: #2c5aa0; letter-spacing: 1px;
+  padding: 2px 6px; background: #fff; border: 1px solid #cfd9f0; border-radius: 3px;
+}
+#session-info-bar button {
+  margin-left: 6px; padding: 2px 8px; font-size: 12px; cursor: pointer;
+  border: 1px solid #ccc; background: #fff; border-radius: 3px;
+}
+#rating-view { display: none; }
+.note {
+  background: #fff8e1; border: 1px solid #f0d489; padding: 10px 14px;
+  font-size: 13px; line-height: 1.5; border-radius: 4px;
+  max-width: 880px; margin: 14px auto 0; color: #5a4a14;
+}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="pill" data-criterion="observability">Observability <span class="count">0/10</span></div>
+  <div class="pill" data-criterion="solvability">Solvability <span class="count">0/10</span></div>
+  <div class="pill" data-criterion="donor_pressure">Donor pressure <span class="count">0/10</span></div>
+  <div id="counter"></div>
+  <button type="button" id="pause-btn">Pause</button>
+</div>
+<div id="session-info-bar">
+  Your session code: <code id="session-code-display">—</code>
+  <button type="button" id="copy-code-btn">Copy</button>
+  <span style="margin-left: 12px; color: #888;">Save this code to resume on another device.</span>
+</div>
+
+<div id="rating-view">
+  <div id="question"></div>
+  <div id="question-help"></div>
+  <div id="cards"></div>
+  <div id="choice-row">
+    <button type="button" id="back-btn" disabled>← Back (undo)</button>
+    <button type="button" id="tie-btn">TIE / Equal</button>
+  </div>
+  <div id="kbd-hint">Keyboard: ← (left) &nbsp;|&nbsp; = (tie) &nbsp;|&nbsp; → (right) &nbsp;|&nbsp; Backspace (undo)</div>
+</div>
+
+<div id="name-prompt">
+  <h2>WST cluster validation</h2>
+  <p class="lead">
+    A short coauthor task: rate <b>5 typology clusters</b> on three criteria using
+    pairwise comparisons. Exactly <b>10 pairs per criterion</b>, <b>30 in total</b>.
+    Should take ~5–10 minutes. Progress autosaves; you can pause and resume.
+  </p>
+
+  <div class="note">
+    <b>What this validates:</b> whether the five policy-learning typology profiles are
+    placed similarly on observability, solvability, and donor-pressure dimensions.
+    This is <em>not</em> a recovery of the 14-problem ranks — it's a cluster-level
+    sanity check that complements the main rating game.
+  </div>
+
+  <div class="welcome-section">
+    <h3>Start a new session</h3>
+    <p>Your name or initials (used to label the downloaded results file):</p>
+    <input type="text" id="rater-name-input" placeholder="e.g. PaulD" />
+    <div style="margin-top: 14px;">
+      <button type="button" class="action-btn" id="rater-name-submit">Start rating →</button>
+    </div>
+  </div>
+
+  <div class="welcome-section welcome-resume">
+    <h3>Or resume an existing session</h3>
+    <p>Paste your 6-character session code from a previous device:</p>
+    <input type="text" id="resume-code-input" placeholder="e.g. JX7K2P" maxlength="32" />
+    <button type="button" class="action-btn secondary" id="resume-code-submit">Resume →</button>
+    <div id="resume-code-msg"></div>
+  </div>
+</div>
+
+<div id="resume-prompt">
+  <h2>Resume previous session?</h2>
+  <p id="resume-info"></p>
+  <button type="button" class="action-btn" id="resume-yes">Resume</button>
+  <button type="button" class="action-btn secondary" id="resume-no">Start fresh</button>
+</div>
+
+<div id="criterion-end">
+  <h2>Criterion complete: <span id="ce-criterion"></span></h2>
+  <p>Cluster ranking on this criterion (rank 1 = "more"; θ is the BT score):</p>
+  <table>
+    <thead><tr><th>Rank</th><th>Cluster</th><th>θ</th></tr></thead>
+    <tbody id="ce-tbody"></tbody>
+  </table>
+  <button type="button" class="action-btn" id="ce-continue">Confirm and continue</button>
+</div>
+
+<div id="summary">
+  <h2>Cluster validation complete</h2>
+  <p>Final ranks across the three criteria. Rank 1 = the cluster scoring "highest" on each axis (hardest to observe / hardest to solve / most donor pressure).</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Cluster</th>
+        <th>Obs rank</th><th>Obs θ</th>
+        <th>Solv rank</th><th>Solv θ</th>
+        <th>Donor rank</th><th>Donor θ</th>
+      </tr>
+    </thead>
+    <tbody id="sum-tbody"></tbody>
+  </table>
+  <button type="button" class="action-btn" id="dl-btn">Download results JSON</button>
+  <button type="button" class="action-btn secondary" id="restart-btn">Restart session (wipe localStorage)</button>
+</div>
+
+<script>
+// =============================================
+// DATA: 5 clusters + 3 criteria
+// =============================================
+const DATA = {
+  task: "cluster_validation",
+  engine: "cluster_pairwise_v1",
+  clusters: [
+    {
+      id: "donor_mediated_loop",
+      label: "Donor-mediated policy-learning loop",
+      includes: "high cost / loan burden; lack of training; water-source unavailability; soil/climate unsuitability",
+      definition: "Problems that are donor-legible, donor-financed, and relatively visible to the formal system."
+    },
+    {
+      id: "state_loop",
+      label: "State policy-learning loop",
+      includes: "electricity supply problems; subsidy delay/nonpayment",
+      definition: "Problems that generate farmer complaints but still enter state administrative response channels."
+    },
+    {
+      id: "governance_failures",
+      label: "Governance failures",
+      includes: "installation problems; corruption / fund misuse; contractor fraud",
+      definition: "Procurement, contractor, and accountability failures that are partially visible but hard for the formal system to translate into accountability."
+    },
+    {
+      id: "decay_coercion",
+      label: "Decay / coercion",
+      includes: "equipment malfunction; forced adoption",
+      definition: "Post-adoption decay and coercive implementation problems that are weakly absorbed by formal policy-learning channels."
+    },
+    {
+      id: "abandoned_dormant",
+      label: "Abandoned / dormant problems",
+      includes: "insufficient yield/profit; water-schedule mismatch; weed proliferation",
+      definition: "Problems with weak or declining formal response, including local agronomic issues and profitability concerns that do not fit the program narrative."
+    }
+  ],
+  criteria: [
+    {
+      key: "observability",
+      title: "Observability",
+      question: "Which cluster is HARDER for the formal system to observe?",
+      help: "Pick the cluster whose problems are less legible to government monitoring channels."
+    },
+    {
+      key: "solvability",
+      title: "Solvability",
+      question: "Which cluster is HARDER for the government to solve effectively?",
+      help: "Pick the cluster whose problems are less tractable for the state to actually fix."
+    },
+    {
+      key: "donor_pressure",
+      title: "Donor pressure",
+      question: "If unresolved, which cluster would create MORE donor pressure or reputational risk?",
+      help: "Pick the cluster whose unresolved problems are more likely to attract donor attention or conditionality."
+    }
+  ]
+};
+</script>
+
+<script>
+// =============================================
+// PURE MATH: Bayesian Davidson Bradley-Terry + Laplace posterior.
+// Lifted verbatim from rating_game/index.html so the same MAP fit + Σ pipeline
+// produces θ and ranks. KEEP IN SYNC if upstream WSTMath changes.
+// =============================================
+(function (root) {
+  function erf(x) {
+    const sign = x < 0 ? -1 : 1;
+    const ax = Math.abs(x);
+    const a1 =  0.254829592, a2 = -0.284496736, a3 =  1.421413741;
+    const a4 = -1.453152027, a5 =  1.061405429, p  =  0.3275911;
+    const t = 1.0 / (1.0 + p * ax);
+    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax);
+    return sign * y;
+  }
+  function normCdf(z) { return 0.5 * (1 + erf(z / Math.sqrt(2))); }
+  function randnPair() {
+    let u1 = 0, u2 = 0;
+    while (u1 < 1e-12) u1 = Math.random();
+    while (u2 < 1e-12) u2 = Math.random();
+    const r = Math.sqrt(-2 * Math.log(u1));
+    return [r * Math.cos(2 * Math.PI * u2), r * Math.sin(2 * Math.PI * u2)];
+  }
+  function randn() { return randnPair()[0]; }
+
+  function matInv(A, jitter) {
+    jitter = jitter || 0;
+    const n = A.length;
+    const M = [];
+    for (let i = 0; i < n; i++) {
+      const row = new Array(2 * n).fill(0);
+      for (let j = 0; j < n; j++) row[j] = A[i][j] + (i === j ? jitter : 0);
+      row[n + i] = 1; M.push(row);
+    }
+    for (let k = 0; k < n; k++) {
+      let piv = k, pivAbs = Math.abs(M[k][k]);
+      for (let r = k + 1; r < n; r++) {
+        const v = Math.abs(M[r][k]);
+        if (v > pivAbs) { piv = r; pivAbs = v; }
+      }
+      if (pivAbs < 1e-14) return null;
+      if (piv !== k) { const tmp = M[k]; M[k] = M[piv]; M[piv] = tmp; }
+      const inv = 1.0 / M[k][k];
+      for (let j = 0; j < 2 * n; j++) M[k][j] *= inv;
+      for (let r = 0; r < n; r++) {
+        if (r === k) continue;
+        const f = M[r][k];
+        if (f === 0) continue;
+        for (let j = 0; j < 2 * n; j++) M[r][j] -= f * M[k][j];
+      }
+    }
+    const Inv = [];
+    for (let i = 0; i < n; i++) Inv.push(M[i].slice(n, 2 * n));
+    return Inv;
+  }
+  function matInvWithJitter(A) {
+    let j = 0;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const inv = matInv(A, j);
+      if (inv !== null) return { inv: inv, jitter: j };
+      j = j === 0 ? 1e-8 : j * 10;
+    }
+    return { inv: null, jitter: j };
+  }
+
+  function davidsonNll(theta, comparisons, nu) {
+    if (nu <= 0) {
+      let nll = 0;
+      for (const c of comparisons) {
+        const ti = theta[c.i], tj = theta[c.j];
+        const m = Math.max(ti, tj);
+        const lse = m + Math.log(Math.exp(ti - m) + Math.exp(tj - m));
+        if (c.outcome === "a") nll -= (ti - lse);
+        else if (c.outcome === "b") nll -= (tj - lse);
+        else nll -= 0.5 * (ti - lse) + 0.5 * (tj - lse);
+      }
+      return nll;
+    }
+    const log_nu = Math.log(nu);
+    let nll = 0;
+    for (const c of comparisons) {
+      const ti = theta[c.i], tj = theta[c.j];
+      const half = 0.5 * (ti + tj);
+      const a = ti, b = tj, cc = half + log_nu;
+      const m = Math.max(a, Math.max(b, cc));
+      const log_denom = m + Math.log(Math.exp(a - m) + Math.exp(b - m) + Math.exp(cc - m));
+      if (c.outcome === "a") nll -= (ti - log_denom);
+      else if (c.outcome === "b") nll -= (tj - log_denom);
+      else nll -= (cc - log_denom);
+    }
+    return nll;
+  }
+  function davidsonGrad(theta, comparisons, nu) {
+    const n = theta.length;
+    const grad = new Array(n).fill(0);
+    if (nu <= 0) {
+      for (const c of comparisons) {
+        const ti = theta[c.i], tj = theta[c.j];
+        const m = Math.max(ti, tj);
+        const ea = Math.exp(ti - m), eb = Math.exp(tj - m);
+        const D = ea + eb;
+        const pi = ea / D, pj = eb / D;
+        const ya = c.outcome === "a" ? 1 : 0;
+        const yb = c.outcome === "b" ? 1 : 0;
+        const yt = c.outcome === "tie" ? 1 : 0;
+        grad[c.i] += -(ya + 0.5 * yt) + (pi + 0.5 * yt);
+        grad[c.j] += -(yb + 0.5 * yt) + (pj + 0.5 * yt);
+      }
+      return grad;
+    }
+    const log_nu = Math.log(nu);
+    for (const c of comparisons) {
+      const ti = theta[c.i], tj = theta[c.j];
+      const half = 0.5 * (ti + tj);
+      const a = ti, b = tj, cc = half + log_nu;
+      const m = Math.max(a, Math.max(b, cc));
+      const ea = Math.exp(a - m), eb = Math.exp(b - m), ec = Math.exp(cc - m);
+      const D = ea + eb + ec;
+      const pi = ea / D, pj = eb / D, pt = ec / D;
+      const ya = c.outcome === "a" ? 1 : 0;
+      const yb = c.outcome === "b" ? 1 : 0;
+      const yt = c.outcome === "tie" ? 1 : 0;
+      grad[c.i] += -(ya + 0.5 * yt) + (pi + 0.5 * pt);
+      grad[c.j] += -(yb + 0.5 * yt) + (pj + 0.5 * pt);
+    }
+    return grad;
+  }
+  function davidsonHessFD(theta, comparisons, nu, eps) {
+    eps = eps || 1e-5;
+    const n = theta.length;
+    const H = [];
+    for (let i = 0; i < n; i++) H.push(new Array(n).fill(0));
+    for (let k = 0; k < n; k++) {
+      const tp = theta.slice(); tp[k] += eps;
+      const tm = theta.slice(); tm[k] -= eps;
+      const gp = davidsonGrad(tp, comparisons, nu);
+      const gm = davidsonGrad(tm, comparisons, nu);
+      for (let r = 0; r < n; r++) H[r][k] = (gp[r] - gm[r]) / (2 * eps);
+    }
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const m = 0.5 * (H[i][j] + H[j][i]);
+        H[i][j] = m; H[j][i] = m;
+      }
+    }
+    return H;
+  }
+  function davidsonMapFit(n_items, comparisons, nu, prior, opts) {
+    opts = opts || {};
+    const maxIter = opts.maxIter || 30;
+    const tol = opts.tol || 1e-6;
+    const dampMaxStep = opts.maxStep || 1.0;
+    const mu = prior.mean.slice();
+    const P = prior.precision;
+
+    function priorPart(theta) {
+      const n = theta.length;
+      const d = new Array(n);
+      for (let i = 0; i < n; i++) d[i] = theta[i] - mu[i];
+      const grad = new Array(n).fill(0);
+      let nlp = 0;
+      for (let i = 0; i < n; i++) {
+        let row = 0;
+        for (let j = 0; j < n; j++) row += P[i][j] * d[j];
+        grad[i] = row;
+        nlp += 0.5 * d[i] * row;
+      }
+      return { grad: grad, nlp: nlp };
+    }
+    function compute(theta) {
+      const grad = davidsonGrad(theta, comparisons, nu);
+      const ll = davidsonNll(theta, comparisons, nu);
+      const pp = priorPart(theta);
+      for (let i = 0; i < n_items; i++) grad[i] += pp.grad[i];
+      const dataHess = davidsonHessFD(theta, comparisons, nu, 1e-5);
+      const hess = [];
+      for (let i = 0; i < n_items; i++) {
+        const row = new Array(n_items).fill(0);
+        for (let j = 0; j < n_items; j++) row[j] = dataHess[i][j] + P[i][j];
+        hess.push(row);
+      }
+      return { grad: grad, hess: hess, nlp: ll + pp.nlp };
+    }
+    const theta = mu.slice();
+    let lastGradInf = Infinity;
+    let iters = 0;
+    let converged = false;
+    for (let it = 0; it < maxIter; it++) {
+      iters = it + 1;
+      const c = compute(theta);
+      let gInf = 0;
+      for (let k = 0; k < n_items; k++) gInf = Math.max(gInf, Math.abs(c.grad[k]));
+      lastGradInf = gInf;
+      if (gInf < tol) { converged = true; break; }
+      const negG = c.grad.map(g => -g);
+      const inv = matInvWithJitter(c.hess);
+      if (!inv.inv) {
+        for (let k = 0; k < n_items; k++) theta[k] -= 0.05 * c.grad[k];
+      } else {
+        const delta = new Array(n_items).fill(0);
+        for (let r = 0; r < n_items; r++) {
+          let s = 0;
+          for (let cc = 0; cc < n_items; cc++) s += inv.inv[r][cc] * negG[cc];
+          delta[r] = s;
+        }
+        let mx = 0;
+        for (let k = 0; k < n_items; k++) mx = Math.max(mx, Math.abs(delta[k]));
+        const scale = mx > dampMaxStep ? (dampMaxStep / mx) : 1.0;
+        for (let k = 0; k < n_items; k++) theta[k] += scale * delta[k];
+      }
+    }
+    const final = compute(theta);
+    return { theta: theta, hessian: final.hess, iters: iters, converged: converged, gradInf: lastGradInf, nlp: final.nlp };
+  }
+  function laplaceCovDirect(hessian) {
+    const r = matInvWithJitter(hessian);
+    if (!r.inv) return null;
+    const n = hessian.length;
+    const Sigma = [];
+    for (let i = 0; i < n; i++) Sigma.push(r.inv[i].slice());
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const m = 0.5 * (Sigma[i][j] + Sigma[j][i]);
+        Sigma[i][j] = m; Sigma[j][i] = m;
+      }
+    }
+    return Sigma;
+  }
+  root.WSTMath = {
+    erf, normCdf, randn, matInv, matInvWithJitter,
+    davidsonNll, davidsonGrad, davidsonHessFD, davidsonMapFit, laplaceCovDirect,
+  };
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script>
+
+<script>
+// =============================================
+// SESSION ENGINE
+// =============================================
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+const TIE_NU = 0.2;
+const PRIOR_PRECISION_DIAG = 1.0 / (2.0 * 2.0);  // weak Gaussian, σ=2
+const N_CLUSTERS = DATA.clusters.length;
+const PAIRS_PER_CRITERION = (N_CLUSTERS * (N_CLUSTERS - 1)) / 2;  // = 10
+const TOTAL_COMPARISONS = PAIRS_PER_CRITERION * DATA.criteria.length;  // = 30
+const TIE_THRESH = 1e-6;
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function allUnorderedPairs(ids) {
+  const out = [];
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      out.push([ids[i], ids[j]]);
+    }
+  }
+  return out;
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function newCriterionState(clusterIds) {
+  return {
+    cids: clusterIds.slice(),
+    pair_queue: shuffle(allUnorderedPairs(clusterIds)),  // each [a, b], unordered
+    cursor: 0,
+    history: [],
+    fit: { theta_map: null, sigma_theta: null, iters: 0, converged: false },
+    done: false,
+    stopped_reason: null,
+    undo_stack: []
+  };
+}
+
+function _identityPrecision(n, diag) {
+  const P = [];
+  for (let i = 0; i < n; i++) {
+    const row = new Array(n).fill(0);
+    row[i] = diag;
+    P.push(row);
+  }
+  return P;
+}
+function _buildComparisonsForFit(state) {
+  const idx = {}; state.cids.forEach((p, i) => { idx[p] = i; });
+  const out = [];
+  for (const h of state.history) {
+    if (!(h.a_id in idx) || !(h.b_id in idx)) continue;
+    out.push({ i: idx[h.a_id], j: idx[h.b_id], outcome: h.outcome });
+  }
+  return out;
+}
+function refitBayesian(state) {
+  const M = globalThis.WSTMath;
+  const n = state.cids.length;
+  const comparisons = _buildComparisonsForFit(state);
+  const prior = {
+    mean: new Array(n).fill(0),
+    precision: _identityPrecision(n, PRIOR_PRECISION_DIAG),
+  };
+  const r = M.davidsonMapFit(n, comparisons, TIE_NU, prior, { maxIter: 30, tol: 1e-6, maxStep: 1.0 });
+  state.fit.theta_map = r.theta;
+  state.fit.sigma_theta = M.laplaceCovDirect(r.hessian);
+  state.fit.iters = r.iters;
+  state.fit.converged = r.converged;
+}
+
+function update(state, a_id, b_id, outcome, left_id, right_id) {
+  state.undo_stack.push({
+    history_len: state.history.length,
+    cursor: state.cursor,
+    stopped_reason: state.stopped_reason,
+    done: state.done,
+    fit: state.fit ? {
+      theta_map: state.fit.theta_map ? state.fit.theta_map.slice() : null,
+      sigma_theta: state.fit.sigma_theta ? state.fit.sigma_theta.map(r => r.slice()) : null,
+      iters: state.fit.iters,
+      converged: state.fit.converged,
+    } : null,
+  });
+  if (state.undo_stack.length > 10) state.undo_stack.shift();
+  state.history.push({
+    a_id, b_id, outcome,
+    left_id, right_id,
+    ts: new Date().toISOString()
+  });
+  state.cursor++;
+  refitBayesian(state);
+  if (state.cursor >= state.pair_queue.length) {
+    state.done = true;
+    state.stopped_reason = "all_pairs_complete";
+  }
+}
+
+function undoLast(state) {
+  if (!state.history || state.history.length === 0) return null;
+  if (!state.undo_stack || state.undo_stack.length === 0) return null;
+  const lastEntry = state.history.pop();
+  const snap = state.undo_stack.pop();
+  state.cursor = snap.cursor;
+  state.stopped_reason = snap.stopped_reason;
+  state.done = snap.done;
+  state.fit = snap.fit || { theta_map: null, sigma_theta: null, iters: 0, converged: false };
+  return lastEntry;
+}
+
+function currentRanking(state) {
+  const theta = state.fit.theta_map || state.cids.map(_ => 0);
+  return state.cids
+    .map((id, i) => ({ id, theta: theta[i] }))
+    .sort((a, b) => b.theta - a.theta);
+}
+function finalRanksWithTies(state) {
+  const sorted = currentRanking(state);
+  const ranks = [];
+  let currentRank = 1;
+  for (let i = 0; i < sorted.length; i++) {
+    if (i > 0 && (sorted[i - 1].theta - sorted[i].theta) >= TIE_THRESH) {
+      currentRank = i + 1;
+    }
+    ranks.push({ id: sorted[i].id, rank: currentRank, theta: sorted[i].theta });
+  }
+  return ranks;
+}
+
+// SMOKE TEST: invariants
+console.assert(N_CLUSTERS === 5, "must have exactly 5 clusters");
+console.assert(PAIRS_PER_CRITERION === 10, "5 clusters → 10 unordered pairs");
+console.assert(TOTAL_COMPARISONS === 30, "3 criteria × 10 pairs = 30 total");
+{
+  const sm = newCriterionState(["a", "b", "c", "d", "e"]);
+  console.assert(sm.pair_queue.length === 10, "pair_queue has 10 entries");
+  update(sm, "a", "b", "a", "a", "b");
+  console.assert(sm.fit.theta_map && sm.fit.theta_map.length === 5, "MAP fit produced 5-vector");
+  console.assert(sm.fit.theta_map[0] > sm.fit.theta_map[1], "winner θ > loser θ");
+  console.log("Cluster validation engine smoke test passed");
+}
+</script>
+
+<script>
+// =============================================
+// SESSION CONTROLLER
+// =============================================
+
+const SESSION = {
+  clusterIds: DATA.clusters.map(c => c.id),
+  criterionOrder: DATA.criteria.map(c => c.key),
+  currentCriterionIdx: 0,
+  states: {},
+};
+DATA.criteria.forEach(c => { SESSION.states[c.key] = newCriterionState(SESSION.clusterIds); });
+
+let currentPair = null;  // { a_id, b_id, left_id, right_id }
+
+function renderCard(cluster, side) {
+  return `<div class="card" data-side="${escapeHtml(side)}" data-cluster-id="${escapeHtml(cluster.id)}">
+    <h2>${escapeHtml(cluster.label)}</h2>
+    <div class="includes"><b>Includes:</b> ${escapeHtml(cluster.includes)}</div>
+    <div class="definition">${escapeHtml(cluster.definition)}</div>
+    <button type="button" class="pick-btn" data-pick="${escapeHtml(side)}">${side === "left" ? "← THIS ONE" : "THIS ONE →"}</button>
+  </div>`;
+}
+
+function renderPair(leftId, rightId, criterion_key) {
+  const left = DATA.clusters.find(c => c.id === leftId);
+  const right = DATA.clusters.find(c => c.id === rightId);
+  const crit = DATA.criteria.find(c => c.key === criterion_key);
+  $("#question").textContent = crit.question;
+  $("#question-help").textContent = crit.help;
+  $("#cards").innerHTML = renderCard(left, "left") + renderCard(right, "right");
+}
+
+function renderTopbar(currentCriterion) {
+  $$(".pill").forEach(pill => {
+    const k = pill.dataset.criterion;
+    pill.classList.toggle("active", k === currentCriterion);
+    const s = SESSION.states[k];
+    pill.classList.toggle("done", s.done);
+    pill.querySelector(".count").textContent = `${s.cursor}/${PAIRS_PER_CRITERION}`;
+  });
+  const totalDone = SESSION.criterionOrder.reduce((acc, k) => acc + SESSION.states[k].cursor, 0);
+  $("#counter").textContent = `Comparison ${Math.min(totalDone + 1, TOTAL_COMPARISONS)} / ${TOTAL_COMPARISONS}`;
+}
+
+function advanceComparison() {
+  const critKey = SESSION.criterionOrder[SESSION.currentCriterionIdx];
+  const state = SESSION.states[critKey];
+  if (state.done) {
+    showCriterionEnd(critKey);
+    return;
+  }
+  const [a, b] = state.pair_queue[state.cursor];
+  // Randomize left/right per comparison; record both id pairs.
+  const swap = Math.random() < 0.5;
+  const left_id = swap ? b : a;
+  const right_id = swap ? a : b;
+  currentPair = { a_id: a, b_id: b, left_id, right_id };
+  renderTopbar(critKey);
+  renderPair(left_id, right_id, critKey);
+  updateBackButton();
+}
+
+function recordChoice(picked) {
+  // picked is "left" | "right" | "tie"; map to outcome in canonical (a, b) order.
+  if (!currentPair) return;
+  const { a_id, b_id, left_id, right_id } = currentPair;
+  let outcome;
+  if (picked === "tie") outcome = "tie";
+  else if (picked === "left") outcome = (left_id === a_id) ? "a" : "b";
+  else outcome = (right_id === a_id) ? "a" : "b";
+  const critKey = SESSION.criterionOrder[SESSION.currentCriterionIdx];
+  update(SESSION.states[critKey], a_id, b_id, outcome, left_id, right_id);
+  saveAll();
+  advanceComparison();
+}
+
+function recordUndo() {
+  const critKey = SESSION.criterionOrder[SESSION.currentCriterionIdx];
+  const state = SESSION.states[critKey];
+  const last = undoLast(state);
+  if (!last) return;
+  // Re-show the same pair (preserve original left/right order from the log).
+  currentPair = { a_id: last.a_id, b_id: last.b_id, left_id: last.left_id, right_id: last.right_id };
+  renderTopbar(critKey);
+  renderPair(last.left_id, last.right_id, critKey);
+  updateBackButton();
+  saveAll();
+}
+
+function updateBackButton() {
+  const critKey = SESSION.criterionOrder[SESSION.currentCriterionIdx];
+  const state = SESSION.states[critKey];
+  const canUndo = state.history.length > 0 && state.undo_stack.length > 0;
+  $("#back-btn").disabled = !canUndo;
+}
+
+function showCriterionEnd(critKey) {
+  $("#rating-view").style.display = "none";
+  $("#criterion-end").style.display = "block";
+  $("#ce-criterion").textContent = DATA.criteria.find(c => c.key === critKey).title;
+  const ranks = finalRanksWithTies(SESSION.states[critKey]);
+  $("#ce-tbody").innerHTML = ranks.map(r => {
+    const c = DATA.clusters.find(cc => cc.id === r.id);
+    return `<tr><td>${r.rank}</td><td>${escapeHtml(c.label)}</td><td>${r.theta.toFixed(3)}</td></tr>`;
+  }).join("");
+}
+
+function continueToNextCriterion() {
+  $("#criterion-end").style.display = "none";
+  SESSION.currentCriterionIdx++;
+  if (SESSION.currentCriterionIdx >= SESSION.criterionOrder.length) {
+    showSummary();
+  } else {
+    $("#rating-view").style.display = "block";
+    advanceComparison();
+  }
+}
+
+function showSummary() {
+  $("#rating-view").style.display = "none";
+  $("#summary").style.display = "block";
+  hideSessionInfoBar();
+  const ranksByCrit = {};
+  SESSION.criterionOrder.forEach(k => { ranksByCrit[k] = finalRanksWithTies(SESSION.states[k]); });
+  const rows = DATA.clusters.map(c => {
+    const cells = SESSION.criterionOrder.map(k => {
+      const r = ranksByCrit[k].find(rr => rr.id === c.id);
+      return `<td>${r.rank}</td><td>${r.theta.toFixed(3)}</td>`;
+    }).join("");
+    return `<tr><td>${escapeHtml(c.label)}</td>${cells}</tr>`;
+  });
+  $("#sum-tbody").innerHTML = rows.join("");
+  // Auto-download once per completed session.
+  const flag = "wst_clusterval_autodl_" + (getSessionCode() || "");
+  if (!sessionStorage.getItem(flag)) {
+    sessionStorage.setItem(flag, "1");
+    setTimeout(() => { try { downloadJSON(); } catch (e) { console.warn("auto-download failed:", e); } }, 250);
+  }
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target.matches("[data-pick=left]")) recordChoice("left");
+  else if (e.target.matches("[data-pick=right]")) recordChoice("right");
+});
+$("#tie-btn").addEventListener("click", () => recordChoice("tie"));
+$("#back-btn").addEventListener("click", recordUndo);
+$("#ce-continue").addEventListener("click", continueToNextCriterion);
+$("#pause-btn").addEventListener("click", () => {
+  saveAll();
+  alert("Saved. Close and reopen this page to resume.");
+});
+
+document.addEventListener("keydown", (e) => {
+  if ($("#rating-view").style.display === "none") return;
+  if (e.key === "ArrowLeft") recordChoice("left");
+  else if (e.key === "ArrowRight") recordChoice("right");
+  else if (e.key === "=" || e.key === "Enter") recordChoice("tie");
+  else if (e.key === "Backspace") { e.preventDefault(); recordUndo(); }
+});
+</script>
+
+<script>
+// =============================================
+// PERSISTENCE: localStorage + Cloudflare Worker
+// =============================================
+
+const STORAGE_KEY = "wst_cluster_validation_v1";
+const SESSION_CODE_KEY = "wst_cluster_validation_code";
+const RATER_NAME_KEY = "wst_cluster_validation_rater_name";
+const WORKER_URL = "https://wst-rating.lutir99.workers.dev";
+
+function getSessionCode() { try { return localStorage.getItem(SESSION_CODE_KEY) || ""; } catch (e) { return ""; } }
+function setSessionCode(c) { try { localStorage.setItem(SESSION_CODE_KEY, c); } catch (e) {} }
+function clearSessionCode() { try { localStorage.removeItem(SESSION_CODE_KEY); } catch (e) {} }
+function getRaterName() { try { return localStorage.getItem(RATER_NAME_KEY) || ""; } catch (e) { return ""; } }
+function setRaterName(n) { try { localStorage.setItem(RATER_NAME_KEY, n); } catch (e) {} }
+
+function generateSessionCode() {
+  const alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";  // skip 0/O/I/1
+  const arr = new Uint8Array(6);
+  (window.crypto || window.msCrypto).getRandomValues(arr);
+  return Array.from(arr).map(b => alpha[b % alpha.length]).join("");
+}
+
+function buildSessionPayload() {
+  const states = {};
+  for (const k of Object.keys(SESSION.states)) {
+    const s = SESSION.states[k];
+    states[k] = {
+      cids: s.cids,
+      pair_queue: s.pair_queue,
+      cursor: s.cursor,
+      history: s.history,
+      stopped_reason: s.stopped_reason,
+      done: s.done,
+      // fit is recomputable on resume; skip persisting.
+    };
+  }
+  return {
+    task: DATA.task,
+    engine: DATA.engine,
+    saved_at: new Date().toISOString(),
+    currentCriterionIdx: SESSION.currentCriterionIdx,
+    states: states,
+    rater_name: getRaterName(),
+  };
+}
+
+function saveAll() {
+  const payload = buildSessionPayload();
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }
+  catch (e) { console.warn("localStorage save failed:", e); }
+  saveToWorker(payload);
+}
+
+function loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+function clearLocalStorage() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+}
+
+function saveToWorker(payload) {
+  const code = getSessionCode();
+  if (!code || !WORKER_URL) return;
+  fetch(`${WORKER_URL}/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId: code, state: payload }),
+  }).catch(e => console.warn("Worker save failed (continuing local-only):", e));
+}
+async function loadFromWorker(code) {
+  if (!WORKER_URL) return null;
+  try {
+    const r = await fetch(`${WORKER_URL}/load?id=${encodeURIComponent(code)}`);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+function validatePayload(p) {
+  if (!p || typeof p !== "object") return { valid: false, reason: "not an object" };
+  if (p.task !== "cluster_validation") return { valid: false, reason: "task mismatch (not cluster_validation)" };
+  if (p.engine !== "cluster_pairwise_v1") return { valid: false, reason: "engine mismatch" };
+  if (!p.states || typeof p.states !== "object") return { valid: false, reason: "no states" };
+  for (const k of SESSION.criterionOrder) {
+    const s = p.states[k];
+    if (!s) return { valid: false, reason: `missing state for criterion ${k}` };
+    if (!Array.isArray(s.cids) || s.cids.length !== N_CLUSTERS) return { valid: false, reason: `bad cids for ${k}` };
+    if (!Array.isArray(s.pair_queue) || s.pair_queue.length !== PAIRS_PER_CRITERION) return { valid: false, reason: `bad pair_queue for ${k}` };
+    if (!Array.isArray(s.history)) return { valid: false, reason: `bad history for ${k}` };
+  }
+  return { valid: true };
+}
+
+function hydrateFromPayload(p) {
+  SESSION.currentCriterionIdx = p.currentCriterionIdx || 0;
+  for (const k of SESSION.criterionOrder) {
+    const fresh = newCriterionState(SESSION.clusterIds);
+    const src = (p.states || {})[k] || {};
+    if (Array.isArray(src.pair_queue) && src.pair_queue.length === PAIRS_PER_CRITERION) {
+      fresh.pair_queue = src.pair_queue.map(pp => pp.slice());
+    }
+    fresh.cursor = Number.isInteger(src.cursor) ? src.cursor : 0;
+    fresh.history = Array.isArray(src.history) ? src.history : [];
+    fresh.stopped_reason = (typeof src.stopped_reason === "string" || src.stopped_reason === null) ? src.stopped_reason : null;
+    fresh.done = !!src.done;
+    SESSION.states[k] = fresh;
+    refitBayesian(fresh);
+  }
+}
+
+// =============================================
+// BOOT
+// =============================================
+
+function showSessionInfoBar() {
+  const code = getSessionCode();
+  const bar = document.getElementById("session-info-bar");
+  const disp = document.getElementById("session-code-display");
+  if (!bar || !disp || !code) return;
+  disp.textContent = code;
+  bar.style.display = "block";
+}
+function hideSessionInfoBar() {
+  const bar = document.getElementById("session-info-bar");
+  if (bar) bar.style.display = "none";
+}
+
+function startNewSession() {
+  if (!getSessionCode()) setSessionCode(generateSessionCode());
+  SESSION.criterionOrder.forEach(k => { refitBayesian(SESSION.states[k]); });
+  $("#name-prompt").style.display = "none";
+  $("#resume-prompt").style.display = "none";
+  $("#rating-view").style.display = "block";
+  showSessionInfoBar();
+  saveAll();
+  advanceComparison();
+}
+
+async function attemptResumeFromCode() {
+  const code = ($("#resume-code-input").value || "").trim().toUpperCase();
+  const msg = $("#resume-code-msg");
+  msg.textContent = "";
+  if (!/^[A-Z0-9]{4,32}$/.test(code)) {
+    msg.style.color = "#c00";
+    msg.textContent = "Enter a 4–32 character code (letters and digits, no spaces).";
+    return;
+  }
+  msg.style.color = "#666";
+  msg.textContent = "Loading…";
+  const remote = await loadFromWorker(code);
+  if (!remote) {
+    msg.style.color = "#c00";
+    msg.textContent = "No session found for that code.";
+    return;
+  }
+  const check = validatePayload(remote);
+  if (!check.valid) {
+    msg.style.color = "#c00";
+    msg.textContent = "Saved session is from a different task — start a new cluster-validation session instead.";
+    console.warn("Remote payload rejected:", check.reason);
+    return;
+  }
+  setRaterName(remote.rater_name || "anonymous");
+  setSessionCode(code);
+  hydrateFromPayload(remote);
+  saveAll();
+  $("#name-prompt").style.display = "none";
+  if (SESSION.currentCriterionIdx >= SESSION.criterionOrder.length) {
+    showSummary();
+  } else {
+    $("#rating-view").style.display = "block";
+    showSessionInfoBar();
+    advanceComparison();
+  }
+}
+
+function boot() {
+  const prev = loadFromLocalStorage();
+  const prevCheck = prev ? validatePayload(prev) : { valid: false };
+  const hasProgress = prevCheck.valid && SESSION.criterionOrder.some(k => (prev.states[k].history || []).length > 0);
+
+  if (!getRaterName() && !hasProgress) {
+    $("#rating-view").style.display = "none";
+    hideSessionInfoBar();
+    $("#name-prompt").style.display = "block";
+    const urlCode = new URLSearchParams(location.search).get("code");
+    if (urlCode) $("#resume-code-input").value = urlCode.toUpperCase();
+    $("#rater-name-submit").addEventListener("click", () => {
+      const v = ($("#rater-name-input").value || "").trim().slice(0, 40);
+      setRaterName(v || "anonymous");
+      startNewSession();
+    }, { once: true });
+    $("#resume-code-submit").addEventListener("click", attemptResumeFromCode);
+    $("#rater-name-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("#rater-name-submit").click();
+    });
+    $("#resume-code-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("#resume-code-submit").click();
+    });
+    return;
+  }
+
+  if (hasProgress) {
+    $("#rating-view").style.display = "none";
+    hideSessionInfoBar();
+    $("#resume-prompt").style.display = "block";
+    const codeNote = getSessionCode() ? ` (Code: ${getSessionCode()})` : "";
+    $("#resume-info").textContent = `Found a saved session at ${prev.saved_at}${codeNote}. Resume where you left off?`;
+    $("#resume-yes").addEventListener("click", () => {
+      hydrateFromPayload(prev);
+      $("#resume-prompt").style.display = "none";
+      if (SESSION.currentCriterionIdx >= SESSION.criterionOrder.length) {
+        showSummary();
+      } else {
+        $("#rating-view").style.display = "block";
+        showSessionInfoBar();
+        advanceComparison();
+      }
+    }, { once: true });
+    $("#resume-no").addEventListener("click", () => {
+      clearLocalStorage();
+      clearSessionCode();
+      DATA.criteria.forEach(c => { SESSION.states[c.key] = newCriterionState(SESSION.clusterIds); });
+      SESSION.currentCriterionIdx = 0;
+      $("#resume-prompt").style.display = "none";
+      setRaterName("");
+      location.reload();
+    }, { once: true });
+    return;
+  }
+
+  // Have rater name but no progress — start fresh.
+  startNewSession();
+}
+boot();
+</script>
+
+<script>
+// =============================================
+// DOWNLOAD + RESTART
+// =============================================
+
+function buildResultsJSON(timestamp) {
+  const ts = timestamp || new Date().toISOString().replace(/[:.]/g, "-");
+  const out = {
+    session_id: ts,
+    rater: getRaterName() || "anonymous",
+    task: DATA.task,                 // "cluster_validation"
+    engine: DATA.engine,             // "cluster_pairwise_v1"
+    n_clusters: N_CLUSTERS,
+    n_pairs_per_criterion: PAIRS_PER_CRITERION,
+    n_total_planned: TOTAL_COMPARISONS,
+    complete: SESSION.criterionOrder.every(k => SESSION.states[k].done),
+    criteria: {}
+  };
+  SESSION.criterionOrder.forEach(k => {
+    const state = SESSION.states[k];
+    const ranks = finalRanksWithTies(state);
+    const scores = {};
+    if (state.fit && state.fit.theta_map) {
+      state.cids.forEach((cid, i) => { scores[cid] = state.fit.theta_map[i]; });
+    } else {
+      state.cids.forEach(cid => { scores[cid] = 0; });
+    }
+    out.criteria[k] = {
+      clusters: state.cids,
+      scores: scores,
+      ranks: Object.fromEntries(ranks.map(r => [r.id, r.rank])),
+      comparisons: state.history,
+      n_comparisons: state.history.length,
+      stopped_reason: state.stopped_reason || "in_progress"
+    };
+  });
+  return out;
+}
+
+function downloadJSON() {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const data = buildResultsJSON(ts);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeName = (data.rater || "anonymous").replace(/[^A-Za-z0-9_-]/g, "_");
+  a.href = url;
+  a.download = `cluster_validation_${safeName}_${ts.slice(0, 19)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$("#dl-btn").addEventListener("click", downloadJSON);
+$("#restart-btn").addEventListener("click", () => {
+  if (!confirm("Wipe cluster-validation ratings and restart from scratch?")) return;
+  clearLocalStorage();
+  clearSessionCode();
+  setRaterName("");
+  location.reload();
+});
+
+const copyBtn = document.getElementById("copy-code-btn");
+if (copyBtn) {
+  copyBtn.addEventListener("click", async () => {
+    const code = getSessionCode();
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      const orig = copyBtn.textContent;
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => { copyBtn.textContent = orig; }, 1200);
+    } catch (e) { alert("Code: " + code); }
+  });
+}
+</script>
+
+</body>
+</html>
