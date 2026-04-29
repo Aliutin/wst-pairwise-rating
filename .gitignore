@@ -1,0 +1,10 @@
+# Local result downloads — never commit these
+ratings_*.json
+results/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
