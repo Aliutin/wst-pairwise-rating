@@ -957,6 +957,14 @@ function showSummary() {
     return `<tr><td>${escapeHtml(p.label)}</td>${cells}</tr>`;
   });
   $("#sum-tbody").innerHTML = rows.join("");
+  // Auto-trigger the download once per completed session so the JSON lands
+  // in ~/Downloads without an extra click. Guard with sessionStorage so
+  // re-opening a completed session doesn't repeatedly redownload.
+  const flag = "wst_main_autodl_" + (getSessionCode() || "");
+  if (!sessionStorage.getItem(flag)) {
+    sessionStorage.setItem(flag, "1");
+    setTimeout(() => { try { downloadJSON(); } catch (e) { console.warn("auto-download failed:", e); } }, 250);
+  }
 }
 
 // Event handlers
