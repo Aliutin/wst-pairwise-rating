@@ -585,6 +585,14 @@ const DATA = {
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
+// HTML-escape user-derived corpus text before interpolating into innerHTML.
+// All Telegram/news quotes, problem labels, definitions, criterion-help strings,
+// translations, dates, titles, and source identifiers must pass through this.
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 function renderQuote(quoteObj, kind) {
   if (!quoteObj) {
     return `<div class="quote ${kind} placeholder-news">
@@ -594,18 +602,18 @@ function renderQuote(quoteObj, kind) {
   }
   const titleStr = quoteObj.title
     ? (quoteObj.title_translation
-        ? ` — "${quoteObj.title}" / EN: "${quoteObj.title_translation}"`
-        : ` — "${quoteObj.title}"`)
+        ? ` — "${escapeHtml(quoteObj.title)}" / EN: "${escapeHtml(quoteObj.title_translation)}"`
+        : ` — "${escapeHtml(quoteObj.title)}"`)
     : "";
   const meta = kind === "news"
-    ? `${(quoteObj.source || "news").toUpperCase()} (${quoteObj.date || "n.d."})${titleStr}`
-    : `TELEGRAM (${quoteObj.date || "n.d."})`;
+    ? `${escapeHtml((quoteObj.source || "news").toUpperCase())} (${escapeHtml(quoteObj.date || "n.d.")})${titleStr}`
+    : `TELEGRAM (${escapeHtml(quoteObj.date || "n.d.")})`;
   const translation = quoteObj.translation
-    ? `<div class="translation">${quoteObj.translation}</div>`
+    ? `<div class="translation">${escapeHtml(quoteObj.translation)}</div>`
     : "";
   return `<div class="quote ${kind}">
     <div class="meta">${meta}</div>
-    "${quoteObj.text || ""}"
+    "${escapeHtml(quoteObj.text || "")}"
     ${translation}
   </div>`;
 }
@@ -615,17 +623,17 @@ function renderCard(problem, criterion_key, side) {
   if (!critData) throw new Error(`renderCard: unknown criterion '${criterion_key}'`);
   const helpMap = problem.criterion_help || {};
   const help = helpMap[criterion_key] || "";
-  const critTitle = critData.title.toUpperCase();
+  const critTitle = critData.title.toUpperCase();  // crit titles are author-controlled, not corpus
   const helpHtml = help
-    ? `<div class="crit-help"><b>Why this matters for ${critTitle}:</b> ${help}</div>`
+    ? `<div class="crit-help"><b>Why this matters for ${escapeHtml(critTitle)}:</b> ${escapeHtml(help)}</div>`
     : "";
-  return `<div class="card" data-side="${side}" data-problem-id="${problem.id}">
-    <h2>${problem.label}</h2>
-    <div class="definition">${problem.definition}</div>
+  return `<div class="card" data-side="${escapeHtml(side)}" data-problem-id="${escapeHtml(problem.id)}">
+    <h2>${escapeHtml(problem.label)}</h2>
+    <div class="definition">${escapeHtml(problem.definition)}</div>
     ${helpHtml}
     ${renderQuote(problem.telegram_example, "telegram")}
     ${renderQuote(problem.news_example, "news")}
-    <button type="button" class="pick-btn" data-pick="${side}">${side === "left" ? "← THIS ONE" : "THIS ONE →"}</button>
+    <button type="button" class="pick-btn" data-pick="${escapeHtml(side)}">${side === "left" ? "← THIS ONE" : "THIS ONE →"}</button>
   </div>`;
 }
 
@@ -707,7 +715,15 @@ function update(state, a_id, b_id, outcome) {
   }
   state.comparison_count[a_id]++;
   state.comparison_count[b_id]++;
-  state.history.push({ a_id, b_id, outcome, ts: new Date().toISOString() });
+  // a_id is the displayed-LEFT problem and b_id is the displayed-RIGHT problem
+  // (renderPair always shows currentPair.a_id on the left). We log left_id/right_id
+  // additively so post-hoc analysis can detect side bias; existing winner/loser
+  // semantics via outcome ("a"/"b"/"tie") are preserved unchanged.
+  state.history.push({
+    a_id, b_id, outcome,
+    left_id: a_id, right_id: b_id,
+    ts: new Date().toISOString()
+  });
   state.rank_snapshot_history.push(currentRanking(state).map(r => r.id).join(","));
   if (state.rank_snapshot_history.length > STABLE_RUNS + 2) state.rank_snapshot_history.shift();
 }
@@ -852,7 +868,13 @@ function advanceComparison() {
     return;
   }
 
-  const [a, b] = pickNextPair(state, SESSION.problemIds);
+  let [a, b] = pickNextPair(state, SESSION.problemIds);
+  // Fair coin flip: 50% chance of swapping left/right. Without this the BT picker
+  // returns pairs deterministically and the same problem keeps appearing on the
+  // same side, biasing raters who anchor on position. After the flip, a_id is
+  // always the LEFT-displayed problem and b_id is the RIGHT-displayed problem;
+  // recordChoice("a") therefore always means "left wins" from the rater's POV.
+  if (Math.random() < 0.5) { [a, b] = [b, a]; }
   currentPair = { a_id: a, b_id: b };
   renderTopbar(critKey, state.history.length + 1, projectedTotal(state));
   renderPair(a, b, critKey);
@@ -907,7 +929,7 @@ function showCriterionEnd(critKey) {
   const ranks = finalRanksWithTies(SESSION.states[critKey]);
   $("#ce-tbody").innerHTML = ranks.map(r => {
     const p = DATA.problems.find(pp => pp.id === r.id);
-    return `<tr><td>${r.rank}</td><td>${p.label}</td><td>${r.theta.toFixed(3)}</td></tr>`;
+    return `<tr><td>${r.rank}</td><td>${escapeHtml(p.label)}</td><td>${r.theta.toFixed(3)}</td></tr>`;
   }).join("");
 }
 
@@ -932,7 +954,7 @@ function showSummary() {
       const r = ranksByCrit[k].find(rr => rr.id === p.id);
       return `<td>${r.rank}</td><td>${r.theta.toFixed(3)}</td>`;
     }).join("");
-    return `<tr><td>${p.label}</td>${cells}</tr>`;
+    return `<tr><td>${escapeHtml(p.label)}</td>${cells}</tr>`;
   });
   $("#sum-tbody").innerHTML = rows.join("");
 }
