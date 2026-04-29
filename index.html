@@ -1032,6 +1032,202 @@ async function loadFromWorker(code) {
   }
 }
 
+// =============================================
+// Remote-state validation (defense-in-depth against malformed/hostile state)
+// =============================================
+// Validates the PERSISTENCE payload shape produced by buildSessionPayload(), NOT
+// the export shape produced by buildResultsJSON(). The Worker /load endpoint and
+// localStorage both round-trip the persistence payload, so attacker-controlled
+// JSON from either source must pass these checks before being hydrated into
+// SESSION.states.
+//
+// Required persistence fields (see buildSessionPayload at ~line 732):
+//   - states: object with one key per SESSION.criterionOrder entry
+//   - currentCriterionIdx: integer in [0, criterionOrder.length]
+//   - rater_name: optional string <= 200 chars
+//   - saved_at: optional string (informational)
+// Per-criterion state (see newCriterionState at ~line 408):
+//   - theta: { problem_id -> number }, all ids in DATA.problems
+//   - comparison_count: { problem_id -> number }, all ids in DATA.problems
+//   - history: array (<= 500 entries) of { a_id, b_id, outcome in {"a","b","tie"}, ... }
+//     left_id/right_id are NEW fields and are NOT required (older states predate them).
+//   - stopped_reason: string or null
+//   - done: boolean if present
+// Stale-schema (any history/theta key not in current DATA.problems) is a HARD reject:
+// silently hydrating stale ids would break the pair-picker.
+const MAX_HISTORY_ENTRIES = 500;          // current ceiling is 60 per criterion; 500 is generous
+const MAX_RATER_NAME_LEN = 200;
+const VALID_OUTCOMES = new Set(["a", "b", "tie"]);
+
+function validateRemoteState(state) {
+  if (state === null || typeof state !== "object" || Array.isArray(state)) {
+    return { valid: false, reason: "state is not a plain object" };
+  }
+  if (state.rater_name !== undefined && state.rater_name !== null) {
+    if (typeof state.rater_name !== "string") {
+      return { valid: false, reason: "rater_name is not a string" };
+    }
+    if (state.rater_name.length > MAX_RATER_NAME_LEN) {
+      return { valid: false, reason: `rater_name longer than ${MAX_RATER_NAME_LEN} chars` };
+    }
+  }
+  const criterionKeys = SESSION.criterionOrder;
+  if (!Number.isInteger(state.currentCriterionIdx)
+      || state.currentCriterionIdx < 0
+      || state.currentCriterionIdx > criterionKeys.length) {
+    return { valid: false, reason: "currentCriterionIdx missing or out of range" };
+  }
+  if (state.states === null || typeof state.states !== "object" || Array.isArray(state.states)) {
+    return { valid: false, reason: "states is not a plain object" };
+  }
+  for (const k of criterionKeys) {
+    if (!Object.prototype.hasOwnProperty.call(state.states, k)) {
+      return { valid: false, reason: `states missing criterion key '${k}'` };
+    }
+  }
+  const problemSet = new Set(SESSION.problemIds);
+  for (const k of criterionKeys) {
+    const cs = state.states[k];
+    if (cs === null || typeof cs !== "object" || Array.isArray(cs)) {
+      return { valid: false, reason: `states['${k}'] is not a plain object` };
+    }
+    if (cs.theta === null || typeof cs.theta !== "object" || Array.isArray(cs.theta)) {
+      return { valid: false, reason: `states['${k}'].theta is not an object` };
+    }
+    for (const pid of Object.keys(cs.theta)) {
+      if (!problemSet.has(pid)) {
+        return { valid: false, reason: `states['${k}'].theta references unknown problem id '${pid}' (stale schema)` };
+      }
+      if (typeof cs.theta[pid] !== "number" || !Number.isFinite(cs.theta[pid])) {
+        return { valid: false, reason: `states['${k}'].theta['${pid}'] is not a finite number` };
+      }
+    }
+    if (cs.comparison_count === null || typeof cs.comparison_count !== "object" || Array.isArray(cs.comparison_count)) {
+      return { valid: false, reason: `states['${k}'].comparison_count is not an object` };
+    }
+    for (const pid of Object.keys(cs.comparison_count)) {
+      if (!problemSet.has(pid)) {
+        return { valid: false, reason: `states['${k}'].comparison_count references unknown problem id '${pid}' (stale schema)` };
+      }
+      if (!Number.isInteger(cs.comparison_count[pid]) || cs.comparison_count[pid] < 0) {
+        return { valid: false, reason: `states['${k}'].comparison_count['${pid}'] is not a non-negative integer` };
+      }
+    }
+    if (!Array.isArray(cs.history)) {
+      return { valid: false, reason: `states['${k}'].history is not an array` };
+    }
+    if (cs.history.length > MAX_HISTORY_ENTRIES) {
+      return { valid: false, reason: `states['${k}'].history exceeds ${MAX_HISTORY_ENTRIES} entries (got ${cs.history.length})` };
+    }
+    for (let i = 0; i < cs.history.length; i++) {
+      const h = cs.history[i];
+      if (h === null || typeof h !== "object" || Array.isArray(h)) {
+        return { valid: false, reason: `states['${k}'].history[${i}] is not an object` };
+      }
+      if (typeof h.a_id !== "string" || !problemSet.has(h.a_id)) {
+        return { valid: false, reason: `states['${k}'].history[${i}].a_id invalid or stale ('${h.a_id}')` };
+      }
+      if (typeof h.b_id !== "string" || !problemSet.has(h.b_id)) {
+        return { valid: false, reason: `states['${k}'].history[${i}].b_id invalid or stale ('${h.b_id}')` };
+      }
+      if (typeof h.outcome !== "string" || !VALID_OUTCOMES.has(h.outcome)) {
+        return { valid: false, reason: `states['${k}'].history[${i}].outcome not in {a,b,tie} ('${h.outcome}')` };
+      }
+      // left_id / right_id are NEW (added with L/R-randomization patch) — not required on
+      // older payloads. If present, they must be strings referencing known problem ids.
+      if (h.left_id !== undefined && (typeof h.left_id !== "string" || !problemSet.has(h.left_id))) {
+        return { valid: false, reason: `states['${k}'].history[${i}].left_id invalid or stale ('${h.left_id}')` };
+      }
+      if (h.right_id !== undefined && (typeof h.right_id !== "string" || !problemSet.has(h.right_id))) {
+        return { valid: false, reason: `states['${k}'].history[${i}].right_id invalid or stale ('${h.right_id}')` };
+      }
+    }
+    if (!(cs.stopped_reason === null || typeof cs.stopped_reason === "string")) {
+      return { valid: false, reason: `states['${k}'].stopped_reason is neither null nor a string` };
+    }
+    if (cs.done !== undefined && typeof cs.done !== "boolean") {
+      return { valid: false, reason: `states['${k}'].done is present but not a boolean` };
+    }
+  }
+  return { valid: true };
+}
+
+// SMOKE TEST — runs on every page load (cheap) and prints to console. To run only
+// when ?test=1 is set, gate the block with the URLSearchParams check inside.
+(function validateRemoteStateSmokeTest() {
+  const verbose = new URLSearchParams(location.search).get("test") === "1";
+  const log = verbose ? (...a) => console.log("[validateRemoteState]", ...a) : () => {};
+  const fail = (label, got) => console.error(`[validateRemoteState FAIL] ${label}:`, got);
+
+  // Build a synthetic VALID persistence payload modelled on buildSessionPayload output.
+  function buildValidPayload() {
+    const states = {};
+    SESSION.criterionOrder.forEach(k => { states[k] = newCriterionState(SESSION.problemIds); });
+    if (SESSION.problemIds.length >= 2) {
+      const [p0, p1] = SESSION.problemIds;
+      states[SESSION.criterionOrder[0]].history.push({
+        a_id: p0, b_id: p1, outcome: "a",
+        left_id: p0, right_id: p1, ts: new Date().toISOString()
+      });
+      states[SESSION.criterionOrder[0]].comparison_count[p0]++;
+      states[SESSION.criterionOrder[0]].comparison_count[p1]++;
+    }
+    return {
+      saved_at: new Date().toISOString(),
+      currentCriterionIdx: 0,
+      states,
+      rater_name: "smoke_test_rater"
+    };
+  }
+
+  // Case 1: valid synthetic payload → expect valid:true.
+  const valid1 = validateRemoteState(buildValidPayload());
+  if (!valid1.valid) fail("synthetic valid payload rejected", valid1);
+  else log("Case 1 PASS — synthetic valid payload accepted");
+
+  // Case 2: missing states key → expect valid:false.
+  const bad2 = buildValidPayload(); delete bad2.states;
+  const r2 = validateRemoteState(bad2);
+  if (r2.valid) fail("missing states accepted", r2);
+  else log("Case 2 PASS — missing states rejected:", r2.reason);
+
+  // Case 3: history entry references unknown problem id → expect valid:false.
+  const bad3 = buildValidPayload();
+  bad3.states[SESSION.criterionOrder[0]].history.push({
+    a_id: "hacked_problem", b_id: SESSION.problemIds[0], outcome: "a", ts: "now"
+  });
+  const r3 = validateRemoteState(bad3);
+  if (r3.valid) fail("stale problem id accepted", r3);
+  else log("Case 3 PASS — stale problem id rejected:", r3.reason);
+
+  // Case 4: not an object → expect valid:false.
+  const r4 = validateRemoteState("not an object");
+  if (r4.valid) fail("string accepted as state", r4);
+  else log("Case 4 PASS — non-object rejected:", r4.reason);
+
+  // Case 5: history without left_id/right_id (older state) → expect valid:true.
+  const bad5 = buildValidPayload();
+  bad5.states[SESSION.criterionOrder[0]].history = [{
+    a_id: SESSION.problemIds[0], b_id: SESSION.problemIds[1], outcome: "tie", ts: "now"
+  }];
+  const r5 = validateRemoteState(bad5);
+  if (!r5.valid) fail("older state lacking left_id/right_id rejected", r5);
+  else log("Case 5 PASS — older state without left_id/right_id accepted");
+
+  // Case 6: oversized history (>500) → expect valid:false.
+  const bad6 = buildValidPayload();
+  const big = [];
+  for (let i = 0; i < 501; i++) {
+    big.push({ a_id: SESSION.problemIds[0], b_id: SESSION.problemIds[1], outcome: "a", ts: "x" });
+  }
+  bad6.states[SESSION.criterionOrder[0]].history = big;
+  const r6 = validateRemoteState(bad6);
+  if (r6.valid) fail("oversized history accepted", r6);
+  else log("Case 6 PASS — oversized history rejected:", r6.reason);
+
+  if (verbose) console.log("[validateRemoteState] all smoke tests passed");
+})();
+
 function saveToLocalStorage() {
   const payload = buildSessionPayload();
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }
@@ -1097,6 +1293,14 @@ async function attemptResumeFromCode() {
     msg.textContent = "No session found for that code.";
     return;
   }
+  // Defense-in-depth: a malicious or stale Worker payload should be rejected
+  // before we hydrate it into the active session.
+  const remoteCheck = validateRemoteState(remote);
+  if (!remoteCheck.valid) {
+    console.warn("Remote session rejected:", remoteCheck.reason, remote);
+    msg.textContent = "This session could not be loaded — saved data is invalid or from an older problem set. Please start a new session.";
+    return;
+  }
   setRaterName(remote.rater_name || "anonymous");
   setSessionCode(code);
   Object.keys(remote.states).forEach(k => { SESSION.states[k] = remote.states[k]; });
@@ -1146,6 +1350,30 @@ function boot() {
 
   // Existing local session → resume prompt
   if (prevValid) {
+    // Defense-in-depth: localStorage can be tampered with from devtools, so
+    // re-validate the stored payload before hydrating it.
+    const localCheck = validateRemoteState(prev);
+    if (!localCheck.valid) {
+      console.warn("Local session rejected:", localCheck.reason, prev);
+      clearLocalStorage();
+      clearSessionCode();
+      $("#rating-view").style.display = "none";
+      hideSessionInfoBar();
+      $("#resume-prompt").style.display = "block";
+      $("#resume-info").style.color = "#c00";
+      $("#resume-info").textContent =
+        "Saved local session is invalid or from an older problem set; it has been cleared. Choose 'Start fresh' to continue.";
+      // Hide the Resume button — only Start fresh is a safe next action.
+      $("#resume-yes").style.display = "none";
+      $("#resume-no").addEventListener("click", () => {
+        DATA.criteria.forEach(c => { SESSION.states[c.key] = newCriterionState(SESSION.problemIds); });
+        SESSION.currentCriterionIdx = 0;
+        $("#resume-prompt").style.display = "none";
+        setRaterName("");
+        location.reload();
+      }, { once: true });
+      return;
+    }
     $("#rating-view").style.display = "none";
     hideSessionInfoBar();
     $("#resume-prompt").style.display = "block";
